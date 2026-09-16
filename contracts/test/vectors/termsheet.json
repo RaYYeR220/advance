@@ -1,0 +1,28 @@
+{
+  "input": {
+    "agentTreasury": "0x96C33027948124a63E885fc34C29692d5A898765",
+    "agentCard": "0x1111111111111111111111111111111111111111",
+    "agentId": "88336",
+    "feesManager": "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544",
+    "poolId": "0x5e9782079683037fc8bb57625683359d9efaef80f2b829c4bb5b1896c6bb40b6",
+    "expectedShares": "950000000000000000",
+    "noteSupply": "5000000000000000000",
+    "floorCents": "80",
+    "minPrincipal": "2000000",
+    "auctionBlocks": "500",
+    "drawLimit": "250000",
+    "drawPeriod": "86400",
+    "gracePeriod": "1209600",
+    "deadline": "1790000000",
+    "nonce": "1",
+    "memoHash": "0x030c22a9e7bc6407a71f45f3e6b1154f050649093c789dacd9defdadd1cf1773"
+  },
+  "domain": {
+    "name": "Advance",
+    "version": "1",
+    "chainId": 8453,
+    "verifyingContract": "0x00000000000000000000000000000000000A11cE"
+  },
+  "structHash": "0x9685da418cb475b47600336845d2e5838ac35eb644e609fef8a14cb3c6b05901",
+  "digest": "0x25562ec56296faae655924e3cd891280b650b9dd3d39e6022be580702450767f"
+}
