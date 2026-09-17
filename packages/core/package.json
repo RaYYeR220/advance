@@ -12,14 +12,18 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {
-    "viem": "^2.56.6"
+    "canonicalize": "^5.0.0",
+    "viem": "^2.56.6",
+    "zod": "^4"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

@@ -17,15 +17,21 @@ const Q_MAX = 1.0;
 
 const CAP_CONSERVATISM_BPS = 5000n; // rawCap = projected90 * 5000/10000 * haircut/10000
 const BPS_DENOMINATOR = 10_000n;
-const CENT_MICRO_USD = 10_000n; // 1 cent = 1e4 micro-USD (1 USD = 1e6 micro-USD)
-const NOTE_DECIMALS_SCALE = 10n ** 12n; // noteSupply (1e18) = capMicroUsd (1e6) * 1e12
+/** 1 cent = 1e4 micro-USD (1 USD = 1e6 micro-USD). Exported so a post-formula tightening
+ * step (e.g. `mergeMemo`) can re-round a shrunk cap down to whole cents the same way. */
+export const CENT_MICRO_USD = 10_000n;
+/** noteSupply (1e18) = capMicroUsd (1e6) * 1e12. Exported for the same reason as
+ * `CENT_MICRO_USD` — recomputing `noteSupply` after `capMicroUsd` changes post-formula. */
+export const NOTE_DECIMALS_SCALE = 10n ** 12n;
 
 const MAINNET_HARD_CEILING_MICRO_USD = 25_000_000n; // $25
 const DEMO_HARD_CEILING_MICRO_USD = 10_000_000_000n; // $10,000
 
 const BASE_FLOOR_CENTS = 80;
 const FLOOR_BUMP_CENTS = 5;
-const MAX_FLOOR_CENTS = 95;
+/** Hard ceiling on `floorCents`, regardless of source — the formula's own bumps, or a
+ * memo's `floorCentsDelta`. Exported so `mergeMemo` clamps against the same value. */
+export const MAX_FLOOR_CENTS = 95;
 const LOW_HAIRCUT_FLOOR_BUMP_THRESHOLD_BPS = 7000;
 const YOUNG_AGE_THRESHOLD_SECONDS = 14n * DAY_SECONDS;
 
@@ -66,6 +72,12 @@ export interface TermsSummary {
   gracePeriod: number;
 }
 
+/** `computeTerms`'s full return shape, including the two fields (`noteSupply`,
+ * `auctionBlocks`) that round out the `TermSheet` but aren't part of `TermsSummary`
+ * itself. Named so callers downstream of the formula (`mergeMemo`) don't have to repeat
+ * the intersection type. */
+export type ComputedTerms = TermsSummary & { noteSupply: bigint; auctionBlocks: bigint };
+
 function clampBigint(x: bigint, lo: bigint, hi: bigint): bigint {
   if (x < lo) return lo;
   if (x > hi) return hi;
@@ -82,6 +94,28 @@ function bigintMin(a: bigint, b: bigint, c: bigint): bigint {
 
 function bigintMax(a: bigint, b: bigint): bigint {
   return a > b ? a : b;
+}
+
+/** Rounds `x` down to a whole cent (the nearest lower multiple of `CENT_MICRO_USD`). */
+export function roundDownToWholeCents(x: bigint): bigint {
+  return (x / CENT_MICRO_USD) * CENT_MICRO_USD;
+}
+
+/**
+ * `minPrincipal`/`drawLimit` as a pure function of `capMicroUsd`/`floorCents` — the same
+ * stepwise formula `computeTerms` applies (cap * floorCents/100 * 50/100, then floored up
+ * to `MIN_DRAW_LIMIT_USDC_WEI` over `MIN_PRINCIPAL_DRAW_PERIODS`). Exported so a
+ * post-formula tightening step (`mergeMemo`) that lowers the cap or raises the floor keeps
+ * `minPrincipal`/`drawLimit` consistent with the same rule, rather than leaving them stale.
+ */
+export function deriveDrawTerms(
+  capMicroUsd: bigint,
+  floorCents: number,
+): { minPrincipal: bigint; drawLimit: bigint } {
+  const minPrincipalAfterFloor = (capMicroUsd * BigInt(floorCents)) / 100n;
+  const minPrincipal = (minPrincipalAfterFloor * 50n) / 100n;
+  const drawLimit = bigintMax(minPrincipal / MIN_PRINCIPAL_DRAW_PERIODS, MIN_DRAW_LIMIT_USDC_WEI);
+  return { minPrincipal, drawLimit };
 }
 
 /** Rejects negative money/ratio inputs outright rather than letting them silently flow
@@ -138,7 +172,7 @@ export function computeTerms(
   rev: RevenueWindows,
   quality: Quality,
   env: UnderwritingEnv,
-): TermsSummary & { noteSupply: bigint; auctionBlocks: bigint } {
+): ComputedTerms {
   assertNonNegativeInputs(rev, quality);
   assertUsableEnv(env);
 
@@ -182,8 +216,7 @@ export function computeTerms(
     env.hardCeilingMicroUsd ??
     (env.network === "mainnet" ? MAINNET_HARD_CEILING_MICRO_USD : DEMO_HARD_CEILING_MICRO_USD);
   const capBeforeRounding = rawCap < hardCeiling ? rawCap : hardCeiling;
-  // Round cap down to whole cents.
-  const capMicroUsd = (capBeforeRounding / CENT_MICRO_USD) * CENT_MICRO_USD;
+  const capMicroUsd = roundDownToWholeCents(capBeforeRounding);
 
   const noteSupply = capMicroUsd * NOTE_DECIMALS_SCALE;
 
@@ -192,9 +225,7 @@ export function computeTerms(
   if (rev.ageSeconds < YOUNG_AGE_THRESHOLD_SECONDS) floorCents += FLOOR_BUMP_CENTS;
   floorCents = Math.min(floorCents, MAX_FLOOR_CENTS);
 
-  // minPrincipal = cap * floorCents/100 * 50/100, applied stepwise per the binding formula.
-  const minPrincipalAfterFloor = (capMicroUsd * BigInt(floorCents)) / 100n;
-  const minPrincipal = (minPrincipalAfterFloor * 50n) / 100n;
+  const { minPrincipal, drawLimit } = deriveDrawTerms(capMicroUsd, floorCents);
 
   const drawPeriod = env.drawPeriodSeconds ?? DEFAULT_DRAW_PERIOD_SECONDS;
   const gracePeriod = env.gracePeriodSeconds ?? DEFAULT_GRACE_PERIOD_SECONDS;
@@ -205,8 +236,6 @@ export function computeTerms(
   if (auctionBlocks <= 0n || AUCTION_BLOCKS_MODULUS % auctionBlocks !== 0n) {
     throw new Error(`auctionBlocks (${auctionBlocks}) must divide 1e7`);
   }
-
-  const drawLimit = bigintMax(minPrincipal / MIN_PRINCIPAL_DRAW_PERIODS, MIN_DRAW_LIMIT_USDC_WEI);
 
   return {
     revenueWei: rev.revenueWei,
