@@ -7,6 +7,9 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IChainlink} from "../../src/interfaces/IChainlink.sol";
 import {Checkpoint, ICCA} from "../../src/interfaces/ICCA.sol";
 import {IAdvanceHub} from "../../src/interfaces/IAdvanceHub.sol";
+import {IDopplerFeesManager, PoolKey} from "../../src/interfaces/IDopplerFeesManager.sol";
+import {ISwapRouter02} from "../../src/interfaces/ISwapRouter02.sol";
+import {CreditLine} from "../../src/CreditLine.sol";
 
 /// @notice Minimal Chainlink `AggregatorV3Interface` mock with settable answer/startedAt/updatedAt,
 /// used for both the ETH/USD feed and the L2 sequencer uptime feed in OracleLib tests.
@@ -243,9 +246,265 @@ contract MockHub is IAdvanceHub {
     uint256 public lastLoanId;
     bool public lastGraduated;
 
+    /// @notice Number of `onRepaid` calls received.
+    uint256 public repaidCallCount;
+    /// @notice Loan id passed to the last `onRepaid` call.
+    uint256 public lastRepaidLoanId;
+
     function onAuctionSettled(uint256 loanId_, bool graduated_) external {
         callCount++;
         lastLoanId = loanId_;
         lastGraduated = graduated_;
+    }
+
+    function onRepaid(uint256 loanId_) external {
+        repaidCallCount++;
+        lastRepaidLoanId = loanId_;
+    }
+}
+
+/// @notice WETH9-style wrapper: `deposit` mints 1:1 against attached ETH, `withdraw` burns and
+/// sends ETH back to the caller.
+contract MockWETH is ERC20 {
+    error EthTransferFailed();
+
+    constructor() ERC20("Wrapped Ether", "WETH") {}
+
+    receive() external payable {
+        _mint(msg.sender, msg.value);
+    }
+
+    function deposit() external payable {
+        _mint(msg.sender, msg.value);
+    }
+
+    function withdraw(uint256 amount) external {
+        _burn(msg.sender, amount);
+        (bool ok,) = msg.sender.call{value: amount}("");
+        if (!ok) revert EthTransferFailed();
+    }
+}
+
+/// @notice Stand-in for a CreditLine that only exposes a settable `state()`, for contracts that
+/// gate on the credit line's lifecycle without exercising the rest of it.
+contract MockCreditLine {
+    CreditLine.State public state;
+
+    function setState(CreditLine.State state_) external {
+        state = state_;
+    }
+}
+
+/// @notice Mock of Doppler's `FeesManager` that mirrors the deployed contract's accounting
+/// line-for-line (MasterChef-style cumulated fees per pool, per-beneficiary last-cumulated
+/// snapshots and WAD shares):
+/// - `collectFees(poolId)` is permissionless, pulls the pool's uncollected LP fees (simulated via
+///   the `accrueFees` test hook) into the manager, adds them to the pool's cumulated fees, and
+///   then releases ONLY `msg.sender`'s pro-rata share. Every other beneficiary's share stays in
+///   the manager until they collect themselves or are touched by `updateBeneficiary`. It returns
+///   the pool-wide amounts pulled, not the caller's share.
+/// - `updateBeneficiary(poolId, new)` reverts if `new == msg.sender`, releases already-cumulated
+///   fees to both parties, snapshots `new` if it had no shares, then moves ALL of the caller's
+///   shares to `new`. A caller with 0 shares succeeds as a no-op and still emits the event.
+/// - Releases pay each pool currency as ERC20 (or native ETH for `address(0)`) and revert the
+///   whole call if the transfer fails, like v4's `CurrencyLibrary.transfer`.
+/// - Both mutators share a reentrancy lock, like the real contract's solady `nonReentrant`.
+/// - `setCollectReverts(true)` makes `collectFees` revert, standing in for the real
+///   `WrongPoolStatus` once a pool has graduated out of `Locked` (where `updateBeneficiary`
+///   still works).
+contract MockFeesManager is IDopplerFeesManager {
+    using SafeERC20 for IERC20;
+
+    uint256 internal constant WAD = 1e18;
+
+    mapping(bytes32 poolId => uint256) public getCumulatedFees0;
+    mapping(bytes32 poolId => uint256) public getCumulatedFees1;
+    mapping(bytes32 poolId => mapping(address beneficiary => uint256)) public getLastCumulatedFees0;
+    mapping(bytes32 poolId => mapping(address beneficiary => uint256)) public getLastCumulatedFees1;
+    mapping(bytes32 poolId => mapping(address beneficiary => uint256)) public getShares;
+
+    /// @notice LP fees accrued in the pool's positions but not yet pulled by any `collectFees`.
+    mapping(bytes32 poolId => uint256) public uncollectedFees0;
+    /// @notice LP fees accrued in the pool's positions but not yet pulled by any `collectFees`.
+    mapping(bytes32 poolId => uint256) public uncollectedFees1;
+
+    mapping(bytes32 poolId => PoolKey) internal _poolKeys;
+    bool internal _locked;
+    bool public collectReverts;
+
+    event Release(bytes32 indexed poolId, address indexed beneficiary, uint256 fees0, uint256 fees1);
+    event Collect(bytes32 indexed poolId, uint256 fees0, uint256 fees1);
+    event UpdateBeneficiary(bytes32 poolId, address oldBeneficiary, address newBeneficiary);
+
+    error InvalidNewBeneficiary();
+    error WrongPoolStatus();
+    error Reentrancy();
+    error NativeTransferFailed();
+    error WrongNativeValue();
+
+    modifier nonReentrant() {
+        if (_locked) revert Reentrancy();
+        _locked = true;
+        _;
+        _locked = false;
+    }
+
+    /// @notice Test hook: registers `poolId`'s key and its initial beneficiaries (shares in WAD).
+    function setPool(bytes32 poolId, PoolKey memory key, address[] memory beneficiaries, uint256[] memory shares)
+        external
+    {
+        _poolKeys[poolId] = key;
+        for (uint256 i; i < beneficiaries.length; ++i) {
+            getShares[poolId][beneficiaries[i]] = shares[i];
+        }
+    }
+
+    /// @notice Test hook: simulates `amount0`/`amount1` LP fees accruing in the pool's positions.
+    /// ERC20 currencies are pulled from the caller (approve first); a native currency must be
+    /// attached as `msg.value`.
+    function accrueFees(bytes32 poolId, uint256 amount0, uint256 amount1) external payable {
+        PoolKey memory key = _poolKeys[poolId];
+        uint256 nativeExpected;
+        nativeExpected += _pullAccrual(key.currency0, amount0);
+        nativeExpected += _pullAccrual(key.currency1, amount1);
+        if (msg.value != nativeExpected) revert WrongNativeValue();
+        uncollectedFees0[poolId] += amount0;
+        uncollectedFees1[poolId] += amount1;
+    }
+
+    /// @notice Test hook: makes `collectFees` revert (a graduated pool's `WrongPoolStatus`).
+    function setCollectReverts(bool reverts_) external {
+        collectReverts = reverts_;
+    }
+
+    function collectFees(bytes32 poolId) external nonReentrant returns (uint128 fees0, uint128 fees1) {
+        if (collectReverts) revert WrongPoolStatus();
+
+        fees0 = uint128(uncollectedFees0[poolId]);
+        fees1 = uint128(uncollectedFees1[poolId]);
+        uncollectedFees0[poolId] = 0;
+        uncollectedFees1[poolId] = 0;
+
+        getCumulatedFees0[poolId] += fees0;
+        getCumulatedFees1[poolId] += fees1;
+
+        _releaseFees(poolId, msg.sender);
+
+        emit Collect(poolId, fees0, fees1);
+    }
+
+    function updateBeneficiary(bytes32 poolId, address newBeneficiary) external nonReentrant {
+        if (newBeneficiary == msg.sender) revert InvalidNewBeneficiary();
+
+        _releaseFees(poolId, msg.sender);
+        _releaseFees(poolId, newBeneficiary);
+
+        if (getShares[poolId][newBeneficiary] == 0) {
+            getLastCumulatedFees0[poolId][newBeneficiary] = getCumulatedFees0[poolId];
+            getLastCumulatedFees1[poolId][newBeneficiary] = getCumulatedFees1[poolId];
+        }
+
+        getShares[poolId][newBeneficiary] += getShares[poolId][msg.sender];
+        getShares[poolId][msg.sender] = 0;
+
+        emit UpdateBeneficiary(poolId, msg.sender, newBeneficiary);
+    }
+
+    function getPoolKey(bytes32 poolId) external view returns (PoolKey memory) {
+        return _poolKeys[poolId];
+    }
+
+    /// @notice What `beneficiary` would be paid by a release right now, excluding fees still
+    /// uncollected in the pool.
+    function pendingInManager(bytes32 poolId, address beneficiary) external view returns (uint256 p0, uint256 p1) {
+        uint256 shares = getShares[poolId][beneficiary];
+        p0 = (getCumulatedFees0[poolId] - getLastCumulatedFees0[poolId][beneficiary]) * shares / WAD;
+        p1 = (getCumulatedFees1[poolId] - getLastCumulatedFees1[poolId][beneficiary]) * shares / WAD;
+    }
+
+    function _releaseFees(bytes32 poolId, address beneficiary) internal {
+        uint256 shares = getShares[poolId][beneficiary];
+
+        if (shares > 0) {
+            PoolKey memory key = _poolKeys[poolId];
+            uint256 delta0 = getCumulatedFees0[poolId] - getLastCumulatedFees0[poolId][beneficiary];
+            uint256 amount0 = delta0 * shares / WAD;
+            getLastCumulatedFees0[poolId][beneficiary] = getCumulatedFees0[poolId];
+            if (amount0 > 0) _transfer(key.currency0, beneficiary, amount0);
+
+            uint256 delta1 = getCumulatedFees1[poolId] - getLastCumulatedFees1[poolId][beneficiary];
+            uint256 amount1 = delta1 * shares / WAD;
+            getLastCumulatedFees1[poolId][beneficiary] = getCumulatedFees1[poolId];
+            if (amount1 > 0) _transfer(key.currency1, beneficiary, amount1);
+
+            emit Release(poolId, beneficiary, amount0, amount1);
+        }
+    }
+
+    function _transfer(address currency, address to, uint256 amount) internal {
+        if (currency == address(0)) {
+            (bool ok,) = to.call{value: amount}("");
+            if (!ok) revert NativeTransferFailed();
+        } else {
+            IERC20(currency).safeTransfer(to, amount);
+        }
+    }
+
+    function _pullAccrual(address currency, uint256 amount) internal returns (uint256 nativeAmount) {
+        if (amount == 0) return 0;
+        if (currency == address(0)) return amount;
+        IERC20(currency).safeTransferFrom(msg.sender, address(this), amount);
+        return 0;
+    }
+}
+
+/// @notice Mock of Uniswap SwapRouter02 `exactInputSingle`: pulls exactly `amountIn` of
+/// `tokenIn` from the caller via `transferFrom` (so it needs an allowance, like the real
+/// router), prices the output at a settable `rate` (tokenOut-wei per 1e18 tokenIn-wei), enforces
+/// `amountOutMinimum` like the real router's "Too little received" check, and mints `tokenOut`
+/// (a `MockERC20`) to `recipient`. Test hooks can make it skip the minimum check and deliver
+/// less than it reports, to exercise a caller's own output verification. Records the last call.
+contract MockSwapRouter is ISwapRouter02 {
+    using SafeERC20 for IERC20;
+
+    uint256 internal constant BPS = 10_000;
+
+    uint256 public rate;
+    bool public ignoreMinimum;
+    uint256 public deliverBps = BPS;
+
+    uint256 public callCount;
+    uint256 public allowanceAtCall;
+    ExactInputSingleParams internal _last;
+
+    error TooLittleReceived();
+
+    function setRate(uint256 rate_) external {
+        rate = rate_;
+    }
+
+    function setIgnoreMinimum(bool ignore_) external {
+        ignoreMinimum = ignore_;
+    }
+
+    function setDeliverBps(uint256 deliverBps_) external {
+        deliverBps = deliverBps_;
+    }
+
+    function last() external view returns (ExactInputSingleParams memory) {
+        return _last;
+    }
+
+    function exactInputSingle(ExactInputSingleParams calldata params) external payable returns (uint256 amountOut) {
+        callCount++;
+        _last = params;
+        allowanceAtCall = IERC20(params.tokenIn).allowance(msg.sender, address(this));
+
+        IERC20(params.tokenIn).safeTransferFrom(msg.sender, address(this), params.amountIn);
+
+        amountOut = params.amountIn * rate / 1e18;
+        if (!ignoreMinimum && amountOut < params.amountOutMinimum) revert TooLittleReceived();
+
+        MockERC20(params.tokenOut).mint(params.recipient, amountOut * deliverBps / BPS);
     }
 }

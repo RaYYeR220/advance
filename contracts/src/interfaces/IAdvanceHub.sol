@@ -1,10 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-/// @notice Minimal AdvanceHub surface used by per-loan CreditLine (and, later, RevenueEscrow)
-/// callbacks. Only the callbacks those contracts need; the full hub ABI is defined where
-/// AdvanceHub itself is implemented.
+/// @notice Minimal AdvanceHub surface used by per-loan CreditLine and RevenueEscrow callbacks.
+/// Only the callbacks those contracts need; the full hub ABI is defined where AdvanceHub itself
+/// is implemented.
 interface IAdvanceHub {
+    /// @notice Called by a loan's RevenueEscrow once the loan's note has been repaid up to its
+    /// cap and the escrow has handed the fee-beneficiary role back to the agent treasury.
+    /// @dev Called exactly once per escrow, last inside `RevenueEscrow.harvest` or
+    /// `RevenueEscrow.closeIfRepaid`, while that escrow holds its transient reentrancy lock and
+    /// after its phase is already `Closed`. Implementations MUST NOT call back into that escrow's
+    /// `harvest`, `closeIfRepaid` or `release` (the shared lock reverts the re-entrant call), and
+    /// MUST NOT revert: a revert here unwinds the whole call, including the final distribution
+    /// that filled the cap, and every later harvest that reaches the cap reverts the same way, so
+    /// the loan could never close and the note's last repayment would never land.
+    /// @param loanId The id of the loan that has been repaid.
+    function onRepaid(uint256 loanId) external;
+
     /// @notice Called by a loan's CreditLine once its funding auction has settled.
     /// @dev Called last inside `CreditLine.settleAuction`, which holds that credit line's
     /// transient reentrancy lock for the duration of the call. Implementations MUST NOT call
