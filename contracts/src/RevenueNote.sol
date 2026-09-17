@@ -21,30 +21,48 @@ contract RevenueNote is ERC20, ReentrancyGuardTransient {
     /// @dev Notes are 18 decimals, USDC is 6; 1e18 note-wei claims on 1e6 USDC-wei.
     uint256 internal constant USDC_SCALE = 1e12;
 
+    /// @notice AdvanceHub address; the only caller allowed to `initialize` and `mint`.
     address public immutable hub;
+    /// @notice USDC token that repayments are denominated and paid in.
     IERC20 public immutable usdc;
 
+    /// @notice RevenueEscrow address, allowed to `distribute`. Set once by `initialize`.
     address public escrow;
+    /// @notice CreditLine address, allowed to `distribute` and `burn`. Set once by `initialize`.
     address public creditLine;
+    /// @notice The address `mint` minted the fixed supply to (the auction contract). Cannot claim
+    /// or be claimed for directly; its accrued-but-unclaimed repayment only reaches lenders once
+    /// it transfers notes to them.
+    address public auction;
+    /// @notice Whether `initialize` has already been called.
     bool public initialized;
+    /// @notice Whether `mint` has already been called.
     bool public minted;
 
-    /// @dev Cumulative USDC distributed per note, scaled by ACC_SCALE.
+    /// @notice Cumulative USDC distributed per note so far, scaled by `ACC_SCALE`.
     uint256 public accPerNote;
-    uint256 public totalRepaidAmount;
+    /// @dev Cumulative USDC ever distributed to this note. Internal; read via `totalRepaid()`.
+    uint256 internal totalRepaidAmount;
 
-    /// @dev Per-account snapshot of `accPerNote` as of the last settlement.
+    /// @notice Per-account snapshot of `accPerNote` as of the last settlement.
     mapping(address => uint256) public snap;
-    /// @dev Per-account USDC owed as of the last settlement, not yet reflecting balance changes since.
-    mapping(address => uint256) public owed;
+    /// @dev Per-account USDC owed as of the last settlement, not yet reflecting balance changes
+    /// since. Internal bookkeeping only, deliberately not exposed as unsettled state that would
+    /// mislead integrators — read `claimable(holder)` instead for the true current owed amount.
+    mapping(address => uint256) internal owed;
 
     event Distributed(address indexed from, uint256 amount, uint256 totalRepaid);
     event Claimed(address indexed holder, uint256 amount);
 
     error NotHub();
     error NotDistributor();
+    error NotCreditLine();
     error AlreadyInitialized();
     error ExceedsCap(uint256 amount, uint256 remaining);
+    error AuctionHolderCannotClaim();
+    error CapBelowRepaid(uint256 newCap, uint256 totalRepaid);
+    error ZeroAmount();
+    error ZeroAddress();
 
     /// @param name_ ERC20 name.
     /// @param symbol_ ERC20 symbol.
@@ -56,42 +74,51 @@ contract RevenueNote is ERC20, ReentrancyGuardTransient {
     }
 
     /// @notice Wires the escrow and credit line addresses allowed to distribute/burn. Callable once, by the hub.
-    /// @param escrow_ RevenueEscrow address, allowed to `distribute`.
-    /// @param creditLine_ CreditLine address, allowed to `distribute` and `burn`.
+    /// @param escrow_ RevenueEscrow address, allowed to `distribute`. Must not be `address(0)`.
+    /// @param creditLine_ CreditLine address, allowed to `distribute` and `burn`. Must not be `address(0)`.
     function initialize(address escrow_, address creditLine_) external {
         if (msg.sender != hub) revert NotHub();
         if (initialized) revert AlreadyInitialized();
+        if (escrow_ == address(0) || creditLine_ == address(0)) revert ZeroAddress();
         initialized = true;
         escrow = escrow_;
         creditLine = creditLine_;
     }
 
-    /// @notice Mints the fixed note supply to `to`. Callable once, by the hub.
-    /// @param to Recipient of the full note supply (typically the auction contract).
+    /// @notice Mints the fixed note supply to `to`. Callable once, by the hub. `to` is recorded
+    /// as the auction holder, which can never `claim`/`claimFor` itself directly.
+    /// @param to Recipient of the full note supply (the auction contract).
     /// @param amount Note supply to mint, 18 decimals.
     function mint(address to, uint256 amount) external {
         if (msg.sender != hub) revert NotHub();
         if (minted) revert AlreadyInitialized();
         minted = true;
+        auction = to;
         _mint(to, amount);
     }
 
     /// @notice Burns unsold notes held by the credit line at auction settlement, shrinking the repayment cap.
+    /// Reverts if burning would drop the cap below what has already been repaid.
     /// @param amount Amount of notes to burn from the caller's own balance.
     function burn(uint256 amount) external {
-        if (msg.sender != creditLine) revert NotDistributor();
+        if (msg.sender != creditLine) revert NotCreditLine();
+
+        uint256 currentSupply = totalSupply();
+        uint256 newSupply = amount > currentSupply ? 0 : currentSupply - amount;
+        uint256 newCap = newSupply / USDC_SCALE;
+        if (newCap < totalRepaidAmount) revert CapBelowRepaid(newCap, totalRepaidAmount);
+
         _burn(msg.sender, amount);
     }
 
     /// @notice Pulls `usdcAmount` USDC from the caller and distributes it pro-rata to note holders.
-    /// @param usdcAmount Amount of USDC to distribute; must not exceed `remainingCap()`.
+    /// @param usdcAmount Amount of USDC to distribute; must be nonzero and not exceed `remainingCap()`.
     function distribute(uint256 usdcAmount) external nonReentrant {
         if (msg.sender != escrow && msg.sender != creditLine) revert NotDistributor();
+        if (usdcAmount == 0) revert ZeroAmount();
 
         uint256 remaining = remainingCap();
         if (usdcAmount > remaining) revert ExceedsCap(usdcAmount, remaining);
-
-        usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
 
         uint256 supply = totalSupply();
         if (supply != 0) {
@@ -100,15 +127,20 @@ contract RevenueNote is ERC20, ReentrancyGuardTransient {
         totalRepaidAmount += usdcAmount;
 
         emit Distributed(msg.sender, usdcAmount, totalRepaidAmount);
+
+        // Interaction last (checks-effects-interactions): state is fully updated before the pull.
+        usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
     }
 
-    /// @notice Claims the caller's owed USDC, paying the caller.
+    /// @notice Claims the caller's owed USDC, paying the caller. Reverts if the caller is the
+    /// auction holder (see `auction`).
     /// @return amount The USDC amount paid out.
     function claim() external nonReentrant returns (uint256) {
         return _claim(msg.sender);
     }
 
-    /// @notice Claims `holder`'s owed USDC, paying `holder` regardless of who calls.
+    /// @notice Claims `holder`'s owed USDC, paying `holder` regardless of who calls. Reverts if
+    /// `holder` is the auction holder (see `auction`).
     /// @param holder The note holder whose owed USDC is paid out.
     /// @return amount The USDC amount paid out.
     function claimFor(address holder) external nonReentrant returns (uint256) {
@@ -116,27 +148,37 @@ contract RevenueNote is ERC20, ReentrancyGuardTransient {
     }
 
     /// @notice The USDC currently owed to `holder`, including unsettled accrual since their last touch.
+    /// @param holder The note holder to query.
+    /// @return The USDC amount currently claimable by `holder`.
     function claimable(address holder) external view returns (uint256) {
         uint256 diff = accPerNote - snap[holder];
         return owed[holder] + balanceOf(holder) * diff / ACC_SCALE;
     }
 
     /// @notice The total USDC repayment cap for this note (fixed supply / 1e12).
+    /// @return The USDC repayment cap, 6 decimals.
     function capUsdc() public view returns (uint256) {
         return totalSupply() / USDC_SCALE;
     }
 
-    /// @notice The remaining USDC that can still be distributed before hitting the cap.
+    /// @notice The remaining USDC that can still be distributed before hitting the cap. Saturates
+    /// at zero rather than underflowing.
+    /// @return The remaining distributable USDC, 6 decimals.
     function remainingCap() public view returns (uint256) {
-        return capUsdc() - totalRepaidAmount;
+        uint256 cap = capUsdc();
+        if (totalRepaidAmount >= cap) return 0;
+        return cap - totalRepaidAmount;
     }
 
     /// @notice The cumulative USDC distributed to this note over its lifetime.
+    /// @return The cumulative USDC distributed, 6 decimals.
     function totalRepaid() external view returns (uint256) {
         return totalRepaidAmount;
     }
 
     function _claim(address holder) internal returns (uint256) {
+        if (holder == auction) revert AuctionHolderCannotClaim();
+
         _settle(holder);
         uint256 amount = owed[holder];
         if (amount != 0) {

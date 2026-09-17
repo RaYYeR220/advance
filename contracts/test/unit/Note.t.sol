@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, stdStorage, StdStorage} from "forge-std/Test.sol";
 import {RevenueNote} from "../../src/RevenueNote.sol";
 import {MockERC20} from "../utils/Mocks.sol";
 
 /// @notice Unit tests for RevenueNote: access control, pro-rata distribution, transferable
 /// accrued-but-unclaimed repayment, claiming, and cap-reducing burns.
 contract RevenueNoteTest is Test {
+    using stdStorage for StdStorage;
+
     RevenueNote internal note;
     MockERC20 internal usdc;
 
@@ -37,6 +39,15 @@ contract RevenueNoteTest is Test {
         usdc.mint(distributor, amount);
         vm.prank(distributor);
         usdc.approve(address(note), amount);
+    }
+
+    /// @dev Mints the full note supply to a dedicated auction address (as production would) and
+    /// immediately sells it to `to`, so `to` is a real bidder rather than the recorded auction holder.
+    function _mintViaAuction(address to, uint256 amount) internal {
+        address auctionAddr = makeAddr("auctionRole");
+        _mint(auctionAddr, amount);
+        vm.prank(auctionAddr);
+        assertTrue(note.transfer(to, amount));
     }
 
     // -- construction / decimals --
@@ -146,7 +157,7 @@ contract RevenueNoteTest is Test {
     // 5. claim transfers USDC and zeroes claimable; claimFor pays the holder not the caller.
     function test_claim_paysAndZeroesClaimable() public {
         _initialize();
-        _mint(alice, 5e18);
+        _mintViaAuction(alice, 5e18);
         _fundDistributor(escrow, 1_000_000);
         vm.prank(escrow);
         note.distribute(1_000_000);
@@ -162,7 +173,7 @@ contract RevenueNoteTest is Test {
 
     function test_claimFor_paysHolderNotCaller() public {
         _initialize();
-        _mint(alice, 5e18);
+        _mintViaAuction(alice, 5e18);
         _fundDistributor(escrow, 1_000_000);
         vm.prank(escrow);
         note.distribute(1_000_000);
@@ -184,7 +195,7 @@ contract RevenueNoteTest is Test {
         _mint(creditLine, 5e18); // unsold notes held by the credit line after settlement
 
         vm.prank(alice);
-        vm.expectRevert(RevenueNote.NotDistributor.selector);
+        vm.expectRevert(RevenueNote.NotCreditLine.selector);
         note.burn(1e18);
 
         vm.prank(creditLine);
@@ -192,5 +203,99 @@ contract RevenueNoteTest is Test {
 
         assertEq(note.capUsdc(), 4e6);
         assertEq(note.totalSupply(), 4e18);
+    }
+
+    function test_burn_revertsIfCapWouldDropBelowRepaid() public {
+        _initialize();
+        _mint(creditLine, 5e18); // capUsdc = 5_000_000
+
+        vm.prank(creditLine);
+        assertTrue(note.transfer(alice, 5e18)); // move the whole supply so it can be distributed to
+
+        _fundDistributor(escrow, 5_000_000);
+        vm.prank(escrow);
+        note.distribute(5_000_000); // totalRepaid == capUsdc() == 5_000_000
+
+        vm.prank(alice);
+        assertTrue(note.transfer(creditLine, 1e18)); // give creditLine something to burn
+
+        // Burning 1e18 would drop capUsdc() to 4_000_000 < totalRepaid (5_000_000).
+        vm.prank(creditLine);
+        vm.expectRevert(abi.encodeWithSelector(RevenueNote.CapBelowRepaid.selector, 4_000_000, 5_000_000));
+        note.burn(1e18);
+    }
+
+    // -- auction holder cannot claim; unclaimed repayment travels with the note on transfer --
+
+    function test_auctionHolderCannotClaim_transferMovesOwedToBidder() public {
+        address auction = makeAddr("auction");
+        _initialize();
+        _mint(auction, 5e18);
+        assertEq(note.auction(), auction);
+
+        _fundDistributor(escrow, 1_000_000);
+        vm.prank(escrow);
+        note.distribute(1_000_000);
+
+        // Neither the auction itself nor a third party can claim on the auction's behalf.
+        vm.expectRevert(RevenueNote.AuctionHolderCannotClaim.selector);
+        note.claimFor(auction);
+
+        vm.prank(auction);
+        vm.expectRevert(RevenueNote.AuctionHolderCannotClaim.selector);
+        note.claim();
+
+        // The auction sells 2e18 of its 5e18 notes to bob; bob's proportional share of the
+        // auction's accrued-but-unclaimed repayment (2/5 * 1_000_000 = 400_000) travels with it.
+        vm.prank(auction);
+        assertTrue(note.transfer(bob, 2e18));
+
+        assertApproxEqAbs(note.claimable(bob), 400_000, 1);
+
+        uint256 before = usdc.balanceOf(bob);
+        vm.prank(bob);
+        uint256 paid = note.claim();
+
+        assertApproxEqAbs(paid, 400_000, 1);
+        assertEq(usdc.balanceOf(bob) - before, paid);
+    }
+
+    // -- distribute: zero amount rejected --
+
+    function test_distribute_revertsOnZeroAmount() public {
+        _initialize();
+        _mint(alice, 5e18);
+
+        vm.prank(escrow);
+        vm.expectRevert(RevenueNote.ZeroAmount.selector);
+        note.distribute(0);
+    }
+
+    // -- remainingCap: saturates at zero, never Panics --
+
+    function test_remainingCap_saturatesAtZeroEvenIfOverRepaid() public {
+        _initialize();
+        _mint(alice, 5e18); // capUsdc = 5_000_000
+
+        // Force an otherwise-unreachable state (totalRepaid > capUsdc) directly via storage,
+        // since burn()'s CapBelowRepaid guard prevents reaching it through the public API.
+        // This proves remainingCap() floors at zero instead of underflow-reverting (Panic 0x11).
+        stdstore.target(address(note)).sig("totalRepaid()").checked_write(6_000_000);
+
+        assertEq(note.remainingCap(), 0);
+    }
+
+    // -- initialize: rejects zero addresses --
+
+    function test_initialize_revertsOnZeroAddress() public {
+        vm.startPrank(hub);
+
+        vm.expectRevert(RevenueNote.ZeroAddress.selector);
+        note.initialize(address(0), creditLine);
+
+        vm.expectRevert(RevenueNote.ZeroAddress.selector);
+        note.initialize(escrow, address(0));
+
+        vm.stopPrank();
     }
 }
