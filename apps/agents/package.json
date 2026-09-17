@@ -1,0 +1,41 @@
+{
+  "name": "@advance/agents",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:live": "LIVE_FORK=1 vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "launch-token": "tsx src/bin/launch-token.ts",
+    "serve": "tsx src/bin/serve-x402-llm.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "@whetstone-research/doppler-sdk": "1.0.43",
+    "@x402/core": "2.26.0",
+    "@x402/evm": "2.26.0",
+    "@x402/hono": "2.26.0",
+    "hono": "^4.13.8",
+    "viem": "^2.56.6",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@x402/fetch": "2.26.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
