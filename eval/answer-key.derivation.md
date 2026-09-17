@@ -205,27 +205,27 @@ Ratspeak-like decay: last 7 days at 300000000000000 wei/day, days 8-30 at 800000
 
 ## spiky-1 (spiky)
 
-Alternating high/low daily accrual over the last 7 days (H=8000000000000000,L=0 wei) drives CV > 1.5; older days flat at 4000000000000000.
+A single high day out of the last 7 (day0=2000000000000000 wei, days1-6=0) drives CV ≈ 2.45, over the 1.5 CV-haircut threshold — this is the scenario that actually exercises the CV-haircut step on an approval. Older days flat at 1000000000000000.
 
 - chainId 8453, network mainnet, ageSeconds 5184000
 - isWethPool=true poolLocked=true hookGraduationFlag=false
-- revenueMicroUsd: d1=22800000 d7=91200000 d30=353400000
-- r1=22800000 r7=13028571 r30=11780000 -> base=11780000
-- decayBps=10000 -> q=1.000000, sumQ(90 terms)=90.000000
-- projected90dMicroUsd = floor(11780000 * 90.000000) = 1060200000
-- top5ConcentrationRatio=0.3000 washRatio=0.0500 cv=0.8660
-- haircutBps steps: concentration=10000 wash=10000 age=10000 cv=10000 -> haircutBps=10000
-- rawCap = projected90*5000/10000*haircut/10000 = 530100000
-- hardCeilingMicroUsd=25000000 -> capMicroUsd=25000000 = $25.000000 (25000000 micro-USD)
-- floorCents=80, minPrincipal=10000000, drawLimit=714285
+- revenueMicroUsd: d1=5700000 d7=5700000 d30=71250000
+- r1=5700000 r7=814285 r30=2375000 -> base=814285
+- decayBps=3428 -> q=0.954519, sumQ(90 terms)=21.653754
+- projected90dMicroUsd = floor(814285 * 21.653754) = 17632327
+- top5ConcentrationRatio=0.3000 washRatio=0.0500 cv=2.4495
+- haircutBps steps: concentration=10000 wash=10000 age=10000 cv=8000 -> haircutBps=8000
+- rawCap = projected90*5000/10000*haircut/10000 = 7052930
+- hardCeilingMicroUsd=25000000 -> capMicroUsd=7050000 = $7.050000 (7050000 micro-USD)
+- floorCents=80, minPrincipal=2820000, drawLimit=201428
 - memo: {"kind":"auto"}
 - no-op memo (capMultiplierBps=10000, floorCentsDelta=0): final terms equal the pre-memo formula terms exactly.
 
-**Expected**: kind=approve, capBand=[25000000, 25000000]
+**Expected**: kind=approve, capBand=[7050000, 7050000]
 
 ## spiky-2 (spiky)
 
-Alternating high/low daily accrual over the last 7 days (H=15000000000000000,L=100000000000000 wei) drives CV > 1.5; older days flat at 5000000000000000.
+Alternating high/low daily accrual over the last 7 days (H=15000000000000000,L=100000000000000 wei, 4 highs/3 lows) — CV ≈ 0.86-0.87, under the 1.5 CV-haircut threshold; a spiky-looking contrast case that does not itself get the CV haircut (see spiky-1). Older days flat at 5000000000000000.
 
 - chainId 8453, network mainnet, ageSeconds 5184000
 - isWethPool=true poolLocked=true hookGraduationFlag=false
@@ -245,7 +245,7 @@ Alternating high/low daily accrual over the last 7 days (H=15000000000000000,L=1
 
 ## spiky-3 (spiky)
 
-Alternating high/low daily accrual over the last 7 days (H=4000000000000000,L=0 wei) drives CV > 1.5; older days flat at 2000000000000000.
+Alternating high/low daily accrual over the last 7 days (H=4000000000000000,L=0 wei, 4 highs/3 lows) — CV ≈ 0.86-0.87, under the 1.5 CV-haircut threshold; a spiky-looking contrast case that does not itself get the CV haircut (see spiky-1). Older days flat at 2000000000000000.
 
 - chainId 8453, network mainnet, ageSeconds 5184000
 - isWethPool=true poolLocked=true hookGraduationFlag=false

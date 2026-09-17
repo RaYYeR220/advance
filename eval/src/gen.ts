@@ -23,10 +23,24 @@ function twoPhase(recentDays: number, recent: bigint, old: bigint): bigint[] {
 }
 
 /** Alternates high/low across the most recent 7 days (index 0..6: H,L,H,L,H,L,H — 4 highs,
- * 3 lows) to drive the coefficient-of-variation haircut; older days (7..29) flat at
- * `steady` so the decay/base math stays unremarkable and only CV is under test. */
+ * 3 lows); older days (7..29) flat at `steady` so the decay/base math stays unremarkable.
+ * With low=0 this 4-high/3-low split has CV ≈ 0.866 regardless of the high magnitude (CV is
+ * scale-invariant — only the split shape matters), which sits *under* the 1.5 CV-haircut
+ * threshold. Useful as a "spiky-looking but not haircut-worthy" contrast case, but does not
+ * by itself exercise the CV-haircut branch — see `spikyPatternSpike`. */
 function spikyPattern(high: bigint, low: bigint, steady: bigint): bigint[] {
   const recent = [high, low, high, low, high, low, high];
+  return [...recent, ...new Array(23).fill(steady)];
+}
+
+/** A single high day out of the most recent 7 (day 0 = `high`, days 1-6 = 0) — the same
+ * "one revenue day, rest empty" shape `too-young-2` uses (there over a 30-day window; here
+ * over the 7-day CV window). For n of 7 days equal to `high` and the rest 0, CV = sqrt((7-n)/n);
+ * n=1 gives CV = sqrt(6) ≈ 2.449, safely over the 1.5 CV-haircut threshold (n=2 would give
+ * CV ≈ 1.58, and n=3 only ≈ 1.15 — already under threshold), so this is what actually drives
+ * the haircut. Older days (7..29) flat at `steady`. */
+function spikyPatternSpike(high: bigint, steady: bigint): bigint[] {
+  const recent = [high, 0n, 0n, 0n, 0n, 0n, 0n];
   return [...recent, ...new Array(23).fill(steady)];
 }
 
@@ -77,8 +91,19 @@ function spiky(n: number, high: bigint, low: bigint, steady: bigint): ScenarioPa
   return mk({
     id: `spiky-${n}`,
     category: "spiky",
-    description: `Alternating high/low daily accrual over the last 7 days (H=${high},L=${low} wei) drives CV > 1.5; older days flat at ${steady}.`,
+    description: `Alternating high/low daily accrual over the last 7 days (H=${high},L=${low} wei, 4 highs/3 lows) — CV ≈ 0.86-0.87, under the 1.5 CV-haircut threshold; a spiky-looking contrast case that does not itself get the CV haircut (see spiky-1). Older days flat at ${steady}.`,
     dailyFeesWei: spikyPattern(high, low, steady),
+    tokenName: `Spiky #${n}`,
+    tokenSymbol: `SPK${n}`,
+  });
+}
+
+function spikyHaircut(n: number, high: bigint, steady: bigint): ScenarioParams {
+  return mk({
+    id: `spiky-${n}`,
+    category: "spiky",
+    description: `A single high day out of the last 7 (day0=${high} wei, days1-6=0) drives CV ≈ 2.45, over the 1.5 CV-haircut threshold — this is the scenario that actually exercises the CV-haircut step on an approval. Older days flat at ${steady}.`,
+    dailyFeesWei: spikyPatternSpike(high, steady),
     tokenName: `Spiky #${n}`,
     tokenSymbol: `SPK${n}`,
   });
@@ -274,8 +299,9 @@ export function buildScenarios(): ScenarioParams[] {
     decaying(4, 1_000_000_000_000_000n, 30_000_000_000_000_000n),
     decaying(5, 300_000_000_000_000n, 8_000_000_000_000_000n),
 
-    // spiky (3)
-    spiky(1, 8_000_000_000_000_000n, 0n, 4_000_000_000_000_000n),
+    // spiky (3): spiky-1 crosses the CV-haircut threshold (single-day spike, CV ≈ 2.45);
+    // spiky-2/3 stay under it (alternating 4-high/3-low, CV ≈ 0.86) as contrast cases.
+    spikyHaircut(1, 2_000_000_000_000_000n, 1_000_000_000_000_000n),
     spiky(2, 15_000_000_000_000_000n, 100_000_000_000_000n, 5_000_000_000_000_000n),
     spiky(3, 4_000_000_000_000_000n, 0n, 2_000_000_000_000_000n),
 

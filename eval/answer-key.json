@@ -123,12 +123,12 @@
     "kind": "approve",
     "denyReasons": [],
     "capBandMicroUsd": [
-      "25000000",
-      "25000000"
+      "7050000",
+      "7050000"
     ],
-    "formulaCapMicroUsd": "25000000",
+    "formulaCapMicroUsd": "7050000",
     "formulaFloorCents": 80,
-    "formulaDrawLimitMicroUsd": "714285"
+    "formulaDrawLimitMicroUsd": "201428"
   },
   "spiky-2": {
     "category": "spiky",

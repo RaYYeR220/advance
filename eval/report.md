@@ -29,7 +29,7 @@ negative-control: PASS (kind=deny, reasons=[creator_has_no_shares, no_recent_rev
 | decaying-3 | decaying | approve | approve |  |  | $7.470000-$7.470000 | $7.470000 | yes |
 | decaying-4 | decaying | approve | approve |  |  | $14.950000-$14.950000 | $14.950000 | yes |
 | decaying-5 | decaying | approve | approve |  |  | $4.480000-$4.480000 | $4.480000 | yes |
-| spiky-1 | spiky | approve | approve |  |  | $25.000000-$25.000000 | $25.000000 | yes |
+| spiky-1 | spiky | approve | approve |  |  | $7.050000-$7.050000 | $7.050000 | yes |
 | spiky-2 | spiky | approve | approve |  |  | $25.000000-$25.000000 | $25.000000 | yes |
 | spiky-3 | spiky | approve | approve |  |  | $25.000000-$25.000000 | $25.000000 | yes |
 | wash-1 | wash_traded | approve | approve |  |  | $25.000000-$25.000000 | $25.000000 | yes |

@@ -58,5 +58,5 @@
   "discoveryMode": "both",
   "id": "spiky-2",
   "category": "spiky",
-  "description": "Alternating high/low daily accrual over the last 7 days (H=15000000000000000,L=100000000000000 wei) drives CV > 1.5; older days flat at 5000000000000000."
+  "description": "Alternating high/low daily accrual over the last 7 days (H=15000000000000000,L=100000000000000 wei, 4 highs/3 lows) — CV ≈ 0.86-0.87, under the 1.5 CV-haircut threshold; a spiky-looking contrast case that does not itself get the CV haircut (see spiky-1). Older days flat at 5000000000000000."
 }
