@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BANKR_DEPLOY_URL,
   buildBankrLaunchRequest,
@@ -88,11 +88,17 @@ describe("buildDopplerLaunchPlan", () => {
 });
 
 describe("runLaunchToken", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("defaults to dry-run and never calls fetch", async () => {
-    const fetchSpy = vi.fn();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      throw new Error("network access is not allowed in this test");
+    });
     const result = await runLaunchToken(
       { chain: "base", name: "My Token", symbol: "MTK", feeRecipient: TREASURY, execute: false },
-      { bankrApiKey: "bk_secret", fetchImpl: fetchSpy as unknown as typeof fetch },
+      { bankrApiKey: "bk_secret" },
     );
     expect(result.executed).toBe(false);
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -102,11 +108,13 @@ describe("runLaunchToken", () => {
   });
 
   it("refuses --execute against Base mainnet even when explicitly requested", async () => {
-    const fetchSpy = vi.fn();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      throw new Error("network access is not allowed in this test");
+    });
     await expect(
       runLaunchToken(
         { chain: "base", name: "My Token", symbol: "MTK", feeRecipient: TREASURY, execute: true },
-        { bankrApiKey: "bk_secret", fetchImpl: fetchSpy as unknown as typeof fetch },
+        { bankrApiKey: "bk_secret" },
       ),
     ).rejects.toThrow(/mainnet/i);
     expect(fetchSpy).not.toHaveBeenCalled();

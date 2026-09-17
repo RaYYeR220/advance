@@ -9,11 +9,13 @@
  * not just by operator discipline — because a real launch spends funds and
  * creates a public asset that this CLI must never do unattended.
  *
- * Base Sepolia (84532): Doppler's Airlock + DopplerHookInitializer are
- * confirmed deployed there (see task-6-report.md for the on-chain
- * `cast code` evidence), so `--execute` drives a real multicurve launch
- * through the Doppler SDK with the fee recipient set as the majority
- * beneficiary. Without `--execute` it only prints the launch plan.
+ * Base Sepolia (84532): Doppler's Airlock
+ * (0x3411306Ce66c9469BFF1535BA955503c4Bde1C6e) and DopplerHookInitializer
+ * (0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544) are deployed there (verified
+ * on-chain: both addresses return non-empty `eth_getCode`), so `--execute`
+ * drives a real multicurve launch through the Doppler SDK with the fee
+ * recipient set as the majority beneficiary. Without `--execute` it only
+ * prints the launch plan.
  */
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -31,7 +33,7 @@ import { privateKeyToAccount } from "viem/accounts";
 
 export const BANKR_DEPLOY_URL = "https://api.bankr.bot/token-launches/deploy";
 
-/** Addresses confirmed deployed on Base Sepolia (84532) via `cast code` — see task-6-report.md. */
+/** Doppler contract addresses deployed on Base Sepolia (84532), confirmed via `eth_getCode`. */
 export const DOPPLER_SEPOLIA_ADDRESSES = {
   airlock: "0x3411306Ce66c9469BFF1535BA955503c4Bde1C6e" as Address,
   dopplerHookInitializer: "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544" as Address,
@@ -67,10 +69,10 @@ export interface BankrLaunchParams {
 /**
  * Builds the exact Bankr token-launch HTTP request. Documented at
  * https://docs.bankr.bot/token-launching/overview/ (endpoint, method, and
- * the `feeRecipient: { type: "wallet", value }` body shape) and confirmed
- * live: `GET https://api.bankr.bot/agent/me` succeeds with `X-API-Key`, and
- * `OPTIONS https://api.bankr.bot/token-launches/deploy` returns 204 —
- * see task-6-report.md for both raw checks.
+ * the `feeRecipient: { type: "wallet", value }` body shape). The endpoint
+ * and auth header are confirmed live: `GET https://api.bankr.bot/agent/me`
+ * succeeds with `X-API-Key`, and
+ * `OPTIONS https://api.bankr.bot/token-launches/deploy` returns 204.
  */
 export function buildBankrLaunchRequest(params: BankrLaunchParams, apiKey: string): HttpRequestPlan {
   const body: Record<string, unknown> = {
@@ -164,7 +166,6 @@ export interface LaunchTokenArgs {
 
 export interface LaunchTokenDeps {
   bankrApiKey?: string;
-  fetchImpl?: typeof fetch;
   sepoliaRpcUrl?: string;
   deployerPrivateKey?: `0x${string}`;
 }
@@ -172,7 +173,6 @@ export interface LaunchTokenDeps {
 export interface LaunchTokenResult {
   executed: boolean;
   dryRun?: { request: HttpRequestPlan } | { plan: DopplerLaunchPlan };
-  bankrResponse?: unknown;
   dopplerResult?: { poolId?: string; tokenAddress?: string; txHash?: string };
 }
 
