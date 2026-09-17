@@ -190,4 +190,28 @@ describe("evidenceHash", () => {
     // fact this resolves at all proves every bigint was converted first.
     expect(() => evidenceHash(bundle)).not.toThrow();
   });
+
+  it("drops undefined fields: cv: undefined hashes the same as cv entirely absent", () => {
+    const withUndefinedCv = buildEvidence(baseParams({ quality: { ...quality(), cv: undefined } }));
+
+    const withoutCvKey = buildEvidence(baseParams({ quality: { ...quality(), cv: undefined } }));
+    delete (withoutCvKey.formula.quality as { cv?: number }).cv;
+    delete (withoutCvKey.swapSample.stats as { cv?: number }).cv;
+
+    expect(evidenceHash(withoutCvKey)).toBe(evidenceHash(withUndefinedCv));
+  });
+
+  it("changes when only llm.rawResponseText changes", () => {
+    const a = buildEvidence(
+      baseParams({
+        llm: { requestMessages: [{ role: "system", content: "be strict" }], rawResponseText: "A" },
+      }),
+    );
+    const b = buildEvidence(
+      baseParams({
+        llm: { requestMessages: [{ role: "system", content: "be strict" }], rawResponseText: "B" },
+      }),
+    );
+    expect(evidenceHash(a)).not.toBe(evidenceHash(b));
+  });
 });

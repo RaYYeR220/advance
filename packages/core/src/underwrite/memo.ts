@@ -1,7 +1,7 @@
 import type { Address } from "viem";
 import { z } from "zod";
 import type { LlmClient, LlmMessage } from "../llm.js";
-import type { DenyReason } from "./rules.js";
+import { termsDenyReasons, type DenyReason } from "./rules.js";
 import {
   MAX_FLOOR_CENTS,
   NOTE_DECIMALS_SCALE,
@@ -205,7 +205,7 @@ export interface MergeMemoResult {
   terms: ComputedTerms;
   denied: boolean;
   /** Present only when `denied` — which `DenyReason` the caller should surface. */
-  reason?: Extract<DenyReason, "memo_denied" | "memo_unavailable">;
+  reason?: Extract<DenyReason, "memo_denied" | "memo_unavailable" | "below_minimum">;
 }
 
 /**
@@ -216,6 +216,19 @@ export interface MergeMemoResult {
  * `MAX_FLOOR_CENTS` (never lowers the floor). `verdict: "deny"` short-circuits to a denial
  * regardless of the multiplier/delta values; a `{error}` outcome (unavailable/invalid
  * memo) denies the same way, since an underwriting decision fails closed without a memo.
+ *
+ * `minPrincipal`/`drawLimit` are re-derived from the tightened cap/floor via the same
+ * formula `computeTerms` uses — but `drawLimit` is then clamped to never exceed its
+ * pre-memo value. A floor-only raise otherwise *increases* `drawLimit` (it's
+ * `max(minPrincipal/14, MIN_DRAW_LIMIT_USDC_WEI)`, and a higher floor raises
+ * `minPrincipal`), which would loosen the borrower's ongoing per-period draw rights even
+ * though the floor itself only got stricter. `minPrincipal` is not clamped the same way:
+ * a higher required raise is strictly stricter, and it keeps the on-chain invariant
+ * `minPrincipal <= cap * floorCents / 100` intact. `drawPeriod`/`gracePeriod` are never
+ * touched by a memo.
+ * Finally, `termsDenyReasons` re-runs against the merged terms — a tighten aggressive
+ * enough to push `minPrincipal` under the $1 floor denies `below_minimum` rather than
+ * silently approving a loan too small to ever open.
  */
 export function mergeMemo(terms: ComputedTerms, memo: MemoOutcome): MergeMemoResult {
   if (isMemoUnavailable(memo)) {
@@ -233,10 +246,22 @@ export function mergeMemo(terms: ComputedTerms, memo: MemoOutcome): MergeMemoRes
   );
   const noteSupply = capMicroUsd * NOTE_DECIMALS_SCALE;
   const floorCents = Math.min(terms.floorCents + floorCentsDelta, MAX_FLOOR_CENTS);
-  const { minPrincipal, drawLimit } = deriveDrawTerms(capMicroUsd, floorCents);
+  const recomputed = deriveDrawTerms(capMicroUsd, floorCents);
+  const minPrincipal = recomputed.minPrincipal;
+  const drawLimit = recomputed.drawLimit < terms.drawLimit ? recomputed.drawLimit : terms.drawLimit;
 
-  return {
-    terms: { ...terms, capMicroUsd, noteSupply, floorCents, minPrincipal, drawLimit },
-    denied: false,
+  const mergedTerms: ComputedTerms = {
+    ...terms,
+    capMicroUsd,
+    noteSupply,
+    floorCents,
+    minPrincipal,
+    drawLimit,
   };
+
+  if (termsDenyReasons(mergedTerms).includes("below_minimum")) {
+    return { terms: mergedTerms, denied: true, reason: "below_minimum" };
+  }
+
+  return { terms: mergedTerms, denied: false };
 }

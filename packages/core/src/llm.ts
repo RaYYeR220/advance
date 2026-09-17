@@ -67,10 +67,7 @@ export function createLlmClient(config: LlmClientConfig): LlmClient {
           body: JSON.stringify({
             model: config.model,
             messages,
-            // Requested unconditionally; a provider/model that doesn't support it responds
-            // with an HTTP error rather than ignoring it, which `complete` surfaces as an
-            // `LlmHttpError` like any other failed request — callers already treat that as
-            // "no memo" (fail closed) rather than needing a separate code path here.
+            // Some providers reject an unsupported response_format with an HTTP 400 instead of ignoring it; that surfaces as an LlmHttpError, which requestMemo already treats as memo_unavailable (fail closed).
             response_format: { type: "json_object" },
           }),
           signal: controller.signal,

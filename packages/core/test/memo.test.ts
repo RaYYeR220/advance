@@ -170,6 +170,70 @@ describe("mergeMemo: tighten-only clamping", () => {
     expect(result.terms.capMicroUsd).toBeLessThanOrEqual(formulaTerms.capMicroUsd);
     expect(result.terms.floorCents).toBeGreaterThanOrEqual(formulaTerms.floorCents);
   });
+
+  it("floor-only tighten (cap unchanged) never raises drawLimit above the pre-memo value", () => {
+    const original = terms();
+    const result = mergeMemo(original, memo({ capMultiplierBps: 10000, floorCentsDelta: 15 }));
+    expect(result.terms.floorCents).toBe(95);
+    expect(result.terms.capMicroUsd).toBe(original.capMicroUsd);
+    // Naively re-deriving drawLimit from the raised floor alone would increase it
+    // (714_285n -> 848_214n) — a floor raise must never loosen the draw ceiling.
+    expect(result.terms.drawLimit).toBe(original.drawLimit);
+    // minPrincipal is not clamped the same way: a higher required raise is stricter.
+    expect(result.terms.minPrincipal).toBeGreaterThan(original.minPrincipal);
+  });
+
+  it("cap-only tighten never raises drawLimit above the pre-memo value", () => {
+    const original = terms();
+    const result = mergeMemo(original, memo({ capMultiplierBps: 5000, floorCentsDelta: 0 }));
+    expect(result.terms.drawLimit).toBeLessThanOrEqual(original.drawLimit);
+  });
+
+  it("drawPeriod and gracePeriod are always exactly the pre-memo values", () => {
+    const original = terms();
+    const result = mergeMemo(original, memo({ capMultiplierBps: 5000, floorCentsDelta: 15 }));
+    expect(result.terms.drawPeriod).toBe(original.drawPeriod);
+    expect(result.terms.gracePeriod).toBe(original.gracePeriod);
+  });
+
+  it("heavy tightening (capMultiplierBps 1) that pushes minPrincipal under $1 denies below_minimum after merging", () => {
+    const result = mergeMemo(terms(), memo({ capMultiplierBps: 1, floorCentsDelta: 0 }));
+    expect(result.denied).toBe(true);
+    expect(result.reason).toBe("below_minimum");
+    // The merged (tightened) terms are still attached, not silently discarded.
+    expect(result.terms.capMicroUsd).toBe(0n);
+  });
+
+  it("a tighten that stays above the $1 minPrincipal floor is not denied below_minimum", () => {
+    const result = mergeMemo(terms(), memo({ capMultiplierBps: 5000, floorCentsDelta: 0 }));
+    expect(result.denied).toBe(false);
+    expect(result.reason).toBeUndefined();
+  });
+
+  describe("tighten-only invariants across a grid of multipliers x floor deltas", () => {
+    const multipliers = [10000, 9999, 5000, 3333, 1];
+    const floorDeltas = [0, 5, 15, 100];
+
+    it("capMicroUsd <= original, floorCents in [original,95], drawLimit <= original, periods unchanged, cap in whole cents, noteSupply = cap * 1e12", () => {
+      const original = terms();
+      for (const capMultiplierBps of multipliers) {
+        for (const floorCentsDelta of floorDeltas) {
+          const result = mergeMemo(original, memo({ capMultiplierBps, floorCentsDelta }));
+          const t = result.terms;
+          const ctx = `capMultiplierBps=${capMultiplierBps} floorCentsDelta=${floorCentsDelta}`;
+
+          expect(t.capMicroUsd, ctx).toBeLessThanOrEqual(original.capMicroUsd);
+          expect(t.floorCents, ctx).toBeGreaterThanOrEqual(original.floorCents);
+          expect(t.floorCents, ctx).toBeLessThanOrEqual(95);
+          expect(t.drawLimit, ctx).toBeLessThanOrEqual(original.drawLimit);
+          expect(t.drawPeriod, ctx).toBe(original.drawPeriod);
+          expect(t.gracePeriod, ctx).toBe(original.gracePeriod);
+          expect(t.capMicroUsd % 10_000n, ctx).toBe(0n); // whole cents (CENT_MICRO_USD)
+          expect(t.noteSupply, ctx).toBe(t.capMicroUsd * 10n ** 12n);
+        }
+      }
+    });
+  });
 });
 
 describe("requestMemo: response handling", () => {
