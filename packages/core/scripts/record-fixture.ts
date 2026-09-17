@@ -1,0 +1,144 @@
+/**
+ * Records a deterministic fixture pair (`bankr.json` + `chain.json`) for one Bankr/Doppler
+ * token, by hitting the live Bankr API and an archive-capable Base RPC.
+ *
+ * Usage (from `packages/core`):
+ *   node --env-file=../../../internal/.env scripts/record-fixture.ts <token> [slug]
+ *
+ * `BASE_RPC_URL` must be set in the environment (an archive-capable RPC, e.g. Alchemy) —
+ * `--env-file` is the recommended way to supply it without ever printing or committing it.
+ * If unset, falls back to the public default (`https://mainnet.base.org`), which may reject
+ * archive `eth_call`s at old blocks.
+ *
+ * Writes: test/fixtures/<slug>/bankr.json, test/fixtures/<slug>/chain.json
+ */
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { Address } from "viem";
+import {
+  BASE_ETH_USD_CHAINLINK_FEED,
+  BASE_MAINNET_CHAIN_ID,
+  BASE_RPC_URL_DEFAULT,
+  BASE_V4_POOL_MANAGER,
+  BASE_WETH,
+} from "../src/chains.js";
+import { createBankrClient, pickBankrToken } from "../src/sources/bankr.js";
+import { createLiveChainOps } from "../src/sources/chainOps.js";
+import { createRecordingChainOps } from "../src/sources/chainFixture.js";
+import { buildChainReader } from "../src/sources/chainLogic.js";
+
+const DAY_SECONDS = 86_400n;
+const WINDOWS_SECONDS = [1n * DAY_SECONDS, 7n * DAY_SECONDS, 30n * DAY_SECONDS];
+
+const here = dirname(fileURLToPath(import.meta.url));
+const fixturesRoot = resolve(here, "../test/fixtures");
+
+async function main() {
+  const token = process.argv[2] as Address | undefined;
+  if (!token) {
+    console.error("usage: record-fixture.ts <token> [slug]");
+    process.exit(1);
+  }
+
+  const rpcUrl = process.env.BASE_RPC_URL ?? BASE_RPC_URL_DEFAULT;
+
+  const bankr = createBankrClient();
+  const bankrResponse = await bankr.getTokenFees(token);
+  const entry = pickBankrToken(bankrResponse, token);
+
+  const slug = process.argv[3] ?? entry.symbol.toLowerCase();
+  const outDir = resolve(fixturesRoot, slug);
+  mkdirSync(outDir, { recursive: true });
+
+  const liveOps = createLiveChainOps(rpcUrl);
+  const { ops, dump } = createRecordingChainOps(liveOps, {
+    token,
+    chainId: BASE_MAINNET_CHAIN_ID,
+  });
+  const reader = buildChainReader(ops);
+
+  const feesManager = entry.initializer;
+  const poolId = entry.poolId;
+  const creator = bankrResponse.address;
+
+  const latest = await reader.getLatestBlock();
+  const poolKey = await reader.getPoolKey(feesManager, poolId);
+  await reader.getShares(feesManager, poolId, creator);
+
+  const isWethPaired =
+    poolKey.currency0.toLowerCase() === BASE_WETH.toLowerCase() ||
+    poolKey.currency1.toLowerCase() === BASE_WETH.toLowerCase();
+
+  let contributingSwapKeys: Set<string> | undefined;
+
+  if (isWethPaired) {
+    for (const windowSeconds of WINDOWS_SECONDS) {
+      const window = await reader.getCreatorRevenueWindow({
+        feesManager,
+        poolId,
+        creator,
+        weth: BASE_WETH,
+        windowSeconds,
+        atBlock: latest.number,
+      });
+      console.log(
+        `  window=${windowSeconds / DAY_SECONDS}d creatorRevenueWeth=${
+          Number(window.creatorRevenueWeth) / 1e18
+        }`,
+      );
+    }
+
+    const swapFromTimestamp = latest.timestamp - 7n * DAY_SECONDS;
+    const swapFromBlock =
+      swapFromTimestamp <= 0n ? 1n : await reader.blockAt(swapFromTimestamp);
+    const swaps = await reader.getSwaps({
+      poolManager: BASE_V4_POOL_MANAGER,
+      poolId,
+      fromBlock: swapFromBlock,
+      toBlock: latest.number,
+      cap: 400,
+    });
+    console.log(`  recorded ${swaps.length} swaps over trailing 7d`);
+
+    // Only the swaps that actually made the final (capped) result matter for replay —
+    // every other raw log fetched along the way is discardable. Trimming to exactly
+    // this set keeps fixtures for busy pools well under a megabyte.
+    contributingSwapKeys = new Set(
+      swaps.map((s) => `${s.blockNumber}:${s.logIndex}`),
+    );
+
+    await reader.getEthUsdPrice(BASE_ETH_USD_CHAINLINK_FEED, latest.number);
+  } else {
+    console.log(
+      `  ${slug}: not WETH-paired (currency0=${poolKey.currency0} currency1=${poolKey.currency1}) — skipping revenue/swap/price calls`,
+    );
+  }
+
+  const chainFixture = dump();
+  if (contributingSwapKeys) {
+    for (const key of Object.keys(chainFixture.calls.swapLogs)) {
+      chainFixture.calls.swapLogs[key] = chainFixture.calls.swapLogs[
+        key
+      ]!.filter((log) =>
+        contributingSwapKeys!.has(`${log.blockNumber}:${log.logIndex}`),
+      );
+    }
+  }
+
+  writeFileSync(
+    resolve(outDir, "bankr.json"),
+    JSON.stringify(bankrResponse, null, 2) + "\n",
+  );
+  writeFileSync(
+    resolve(outDir, "chain.json"),
+    JSON.stringify(chainFixture, null, 2) + "\n",
+  );
+
+  console.log(`recorded fixture "${slug}" for token ${token} at block ${latest.number}`);
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
