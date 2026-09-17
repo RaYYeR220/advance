@@ -8,8 +8,8 @@ import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/Signa
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 import {IAgentCard} from "./interfaces/IAgentCard.sol";
+import {ICreditLine} from "./interfaces/ICreditLine.sol";
 import {IFiatToken} from "./interfaces/IFiatToken.sol";
-import {CreditLine} from "./CreditLine.sol";
 
 /// @title AgentCard
 /// @notice Holds an agent's drawn USDC and approves x402 payments -- EIP-3009
@@ -49,14 +49,19 @@ contract AgentCard is IERC1271, IAgentCard, ReentrancyGuardTransient {
     /// @dev Same allowlist as `_isAllowedPayee`, kept in constructor order for `payees()`.
     address[] internal _payees;
 
+    /// @dev Reverts `ZeroAddress` if `owner_`/`hub_`/`usdc_` is zero, `ZeroPerCallCap` if
+    /// `perCallCap_` is zero, `ZeroMaxAuthWindow` if `maxAuthWindow_` is zero, `NoPayees` if
+    /// `payees_` is empty, `ZeroPayee` if it contains the zero address, and `DuplicatePayee` if it
+    /// repeats an address.
     /// @param owner_ The agent's signing key; the only address allowed to `drawCredit`.
     /// @param hub_ AdvanceHub address; the only caller allowed to `freeze`, `unfreeze` and
     /// `returnFunds`.
     /// @param usdc_ USDC token this card holds and pays out.
-    /// @param perCallCap_ Maximum USDC value a single authorized payment may move.
+    /// @param perCallCap_ Maximum USDC value a single authorized payment may move; must be nonzero.
     /// @param maxAuthWindow_ Maximum seconds beyond `block.timestamp` an authorization's
-    /// `validBefore` may be set to at verification time.
-    /// @param payees_ Fixed set of payees this card may ever pay; must be nonempty.
+    /// `validBefore` may be set to at verification time; must be nonzero.
+    /// @param payees_ Fixed set of payees this card may ever pay; must be nonempty, with no zero
+    /// address or duplicate entries.
     constructor(
         address owner_,
         address hub_,
@@ -69,6 +74,8 @@ contract AgentCard is IERC1271, IAgentCard, ReentrancyGuardTransient {
             revert ZeroAddress();
         }
         if (payees_.length == 0) revert NoPayees();
+        if (perCallCap_ == 0) revert ZeroPerCallCap();
+        if (maxAuthWindow_ == 0) revert ZeroMaxAuthWindow();
 
         owner = owner_;
         hub = hub_;
@@ -76,8 +83,15 @@ contract AgentCard is IERC1271, IAgentCard, ReentrancyGuardTransient {
         perCallCap = perCallCap_;
         maxAuthWindow = maxAuthWindow_;
 
+        // Bounded, one-time constructor validation over caller-supplied calldata, not a runtime
+        // loop; reverting here cannot be griefed or repeated.
         for (uint256 i; i < payees_.length; ++i) {
-            _isAllowedPayee[payees_[i]] = true;
+            address payee_ = payees_[i];
+            // forge-lint: disable-next-line(require-revert-in-loop)
+            if (payee_ == address(0)) revert ZeroPayee();
+            // forge-lint: disable-next-line(require-revert-in-loop)
+            if (_isAllowedPayee[payee_]) revert DuplicatePayee(payee_);
+            _isAllowedPayee[payee_] = true;
         }
         _payees = payees_;
     }
@@ -145,8 +159,13 @@ contract AgentCard is IERC1271, IAgentCard, ReentrancyGuardTransient {
     /// @inheritdoc IAgentCard
     function drawCredit(address creditLine, uint256 amount) external nonReentrant {
         if (msg.sender != owner) revert NotOwner();
-        emit CreditDrawn(creditLine, amount);
-        CreditLine(creditLine).draw(amount);
+        uint256 balanceBefore = usdc.balanceOf(address(this));
+        ICreditLine(creditLine).draw(amount);
+        uint256 drawn = usdc.balanceOf(address(this)) - balanceBefore;
+        // The emitted amount is only known once measured after the call; nonReentrant already
+        // blocks any re-entrant draw/return here.
+        // forge-lint: disable-next-line(reentrancy-events)
+        emit CreditDrawn(creditLine, drawn);
     }
 
     /// @inheritdoc IAgentCard

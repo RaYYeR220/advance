@@ -8,7 +8,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 interface IAgentCard {
     /// @notice Emitted on every successful `drawCredit`.
     /// @param creditLine The credit line drawn from.
-    /// @param amount USDC drawn.
+    /// @param amount USDC actually received, measured as this card's USDC balance delta across
+    /// the draw (not the requested amount).
     event CreditDrawn(address indexed creditLine, uint256 amount);
     /// @notice Emitted when the hub freezes this card.
     event Frozen();
@@ -27,6 +28,15 @@ interface IAgentCard {
     error NoPayees();
     /// @notice Thrown when a required constructor address argument is zero.
     error ZeroAddress();
+    /// @notice Thrown when the constructor is given a zero `perCallCap`.
+    error ZeroPerCallCap();
+    /// @notice Thrown when the constructor is given a zero `maxAuthWindow`.
+    error ZeroMaxAuthWindow();
+    /// @notice Thrown when the constructor's payee list contains a zero address.
+    error ZeroPayee();
+    /// @notice Thrown when the constructor's payee list repeats an address.
+    /// @param payee The address that appeared more than once.
+    error DuplicatePayee(address payee);
 
     /// @notice The agent's signing key; the only address allowed to `drawCredit`.
     /// @return The owner address.
