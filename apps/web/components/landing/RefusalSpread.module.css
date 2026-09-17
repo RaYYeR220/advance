@@ -1,0 +1,121 @@
+.refusal :global(.pg-l),
+.refusal :global(.pg-r) {
+  display: flex;
+  flex-direction: column;
+}
+
+.title {
+  margin-top: 36px;
+}
+
+.deck {
+  margin-top: 22px;
+  max-width: 28ch;
+}
+
+.tally {
+  margin-top: auto;
+  padding-top: 40px;
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 0 28px;
+  align-items: end;
+}
+
+.tally b {
+  display: block;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 64px;
+  line-height: 0.9;
+}
+
+.tally span {
+  font-size: 14px;
+  line-height: 1.35;
+  color: var(--forest-80);
+}
+
+.tally p {
+  align-self: end;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--forest-80);
+  max-width: 26ch;
+  padding-left: 24px;
+  border-left: 1px solid var(--hair);
+  padding-bottom: 3px;
+}
+
+.evidence {
+  margin-top: 36px;
+  margin-bottom: 96px;
+  display: grid;
+  grid-template-columns: minmax(0, 12fr) minmax(0, 8fr);
+  gap: 40px;
+  align-items: start;
+}
+
+.suspect {
+  position: relative;
+  margin-top: 44px;
+}
+
+.suspectFrame {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  background: var(--paper);
+}
+
+.suspect figcaption {
+  margin-top: 14px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--forest-80);
+}
+
+.suspect figcaption b {
+  color: var(--forest);
+}
+
+@media (max-width: 860px) {
+  .title {
+    margin-top: 26px;
+  }
+
+  .tally {
+    grid-template-columns: auto auto;
+    gap: 14px 28px;
+    padding-top: 34px;
+  }
+
+  .tally p {
+    grid-column: 1 / -1;
+    max-width: none;
+    padding: 12px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--hair);
+  }
+
+  .tally b {
+    font-size: 56px;
+  }
+
+  .evidence {
+    grid-template-columns: 1fr;
+    gap: 0;
+    margin: 26px 0 0;
+  }
+
+  .suspect {
+    display: grid;
+    grid-template-columns: 132px 1fr;
+    gap: 16px;
+    align-items: end;
+    margin-top: 84px;
+  }
+
+  .suspect figcaption {
+    margin: 0;
+  }
+}

@@ -1,0 +1,42 @@
+.gatefold {
+  padding: 40px var(--pad) 80px;
+  overflow-x: clip;
+}
+
+.head {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: 56px;
+  align-items: end;
+  margin: 36px 0 44px;
+}
+
+.deck {
+  max-width: 30ch;
+  padding-bottom: 6px;
+}
+
+.foot {
+  margin-top: 18px;
+  font-size: 15px;
+  color: var(--forest-80);
+  max-width: 80ch;
+}
+
+.foot i {
+  font-family: var(--display);
+  font-size: 17px;
+  color: var(--forest);
+}
+
+@media (max-width: 860px) {
+  .gatefold {
+    padding: 28px var(--pad) 56px;
+  }
+
+  .head {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    margin: 26px 0 30px;
+  }
+}

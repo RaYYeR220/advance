@@ -1,0 +1,147 @@
+.colophon {
+  padding: 40px var(--pad) 72px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+  gap: 64px;
+  margin-top: 40px;
+}
+
+.intro {
+  margin-top: 18px;
+}
+
+.contracts {
+  margin-top: 30px;
+}
+
+.contracts h3 {
+  font-size: 22px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.contracts ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.contracts li {
+  display: grid;
+  grid-template-columns: minmax(0, 150px) minmax(0, 1fr);
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--hair);
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--forest-80);
+}
+
+.contracts li span {
+  font-family: var(--type);
+  font-size: 14.5px;
+  color: var(--forest);
+}
+
+.contracts p {
+  margin-top: 12px;
+  font-size: 14px;
+  color: var(--forest-80);
+}
+
+.rails {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 48px;
+}
+
+.rails div {
+  padding: 16px 0 18px;
+  border-top: 1px solid var(--rule);
+  display: grid;
+  grid-template-columns: minmax(0, 150px) minmax(0, 1fr);
+  gap: 18px;
+}
+
+.rails dt {
+  font-family: var(--display);
+  font-size: 28px;
+  line-height: 1;
+}
+
+.rails dd {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.rails dd small {
+  display: block;
+  font-size: 13px;
+  color: var(--forest-80);
+  margin-top: 4px;
+}
+
+.strip {
+  margin-top: 44px;
+}
+
+.strip svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.strip svg text {
+  font-family: var(--text);
+  font-size: 10px;
+  fill: var(--forest);
+}
+
+.strip .compact {
+  display: none;
+}
+
+@media (max-width: 1180px) {
+  .rails {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 860px) {
+  .colophon {
+    padding: 28px var(--pad) 56px;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+    gap: 26px;
+    margin-top: 26px;
+  }
+
+  .rails div {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .rails dt {
+    font-size: 26px;
+  }
+
+  .contracts li {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .strip .wide {
+    display: none;
+  }
+
+  .strip .compact {
+    display: block;
+  }
+}

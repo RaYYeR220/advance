@@ -1,0 +1,146 @@
+/*
+ * Advance design tokens.
+ * Layout breakpoints (media queries cannot read custom properties):
+ *   --bp-tablet 1180px  two-page spreads tighten
+ *   --bp-single  860px  spreads collapse to a single page
+ */
+:root {
+  /* ink and stock */
+  --paper: #EFEBE2;
+  --paper-dk: #E4DFD2;
+  --stock: #F7F4EC;
+  --ochre: #D9A441;
+  --forest: #173F35;
+  --forest-80: rgba(23, 63, 53, 0.82);
+  --forest-70: rgba(23, 63, 53, 0.74);
+  --forest-60: rgba(23, 63, 53, 0.6);
+  --forest-35: rgba(23, 63, 53, 0.35);
+  --forest-22: rgba(23, 63, 53, 0.22);
+  --hair: rgba(23, 63, 53, 0.26);
+  --rule: rgba(23, 63, 53, 0.88);
+  --gutter-shade: rgba(23, 63, 53, 0.075);
+  --reverse-rule: rgba(239, 235, 226, 0.6);
+  --reverse-hair: rgba(239, 235, 226, 0.5);
+  --reverse-80: rgba(239, 235, 226, 0.8);
+  --reverse-85: rgba(239, 235, 226, 0.85);
+  --reverse-70: rgba(239, 235, 226, 0.7);
+
+  /* paper grain laid over every page */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .09 0 0 0 0 .25 0 0 0 0 .2 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)'/%3E%3C/svg%3E");
+
+  /* families: DM Serif Display for display, Karla for text, Courier Prime for typewritten matter */
+  --display: var(--font-display), Georgia, serif;
+  --text: var(--font-text), system-ui, sans-serif;
+  --type: var(--font-type), "Courier New", monospace;
+
+  /* type scale: size / leading */
+  --fs-body: 17px;
+  --lh-body: 1.55;
+  --fs-body-m: 16px;
+  --fs-sub: 17.5px;
+  --lh-sub: 1.56;
+  --fs-prose: 17px;
+  --lh-prose: 1.6;
+  --fs-small: 15px;
+  --fs-caption: 14px;
+  --lh-caption: 1.45;
+  --fs-meta: 13.5px;
+  --lh-meta: 1.35;
+  --fs-micro: 12.5px;
+  --lh-micro: 1.3;
+  --fs-wordmark: 30px;
+  --fs-wordmark-m: 27px;
+  --fs-nav: 15px;
+  --fs-button: 17px;
+  --fs-h1: clamp(64px, 7.5vw, 112px);
+  --lh-h1: 0.87;
+  --fs-h1-m: clamp(50px, 15.2vw, 66px);
+  --fs-h2-xl: clamp(46px, 5.8vw, 88px);
+  --lh-h2-xl: 0.92;
+  --fs-h2-l: clamp(38px, 4vw, 60px);
+  --lh-h2-l: 0.96;
+  --fs-deck: clamp(20px, 1.7vw, 24px);
+  --lh-deck: 1.3;
+  --fs-folio: clamp(72px, 6.6vw, 100px);
+  --lh-folio: 0.74;
+  --fs-folio-m: 70px;
+  --fs-folio-back: 64px;
+  --fs-page-no: 22px;
+  --fs-running-title: 18px;
+  --fs-pull: clamp(30px, 2.7vw, 40px);
+  --lh-pull: 1.08;
+  --fs-prompt: clamp(30px, 2.9vw, 42px);
+  --lh-prompt: 1.16;
+  --fs-memo: clamp(21px, 1.75vw, 25px);
+  --lh-memo: 1.28;
+  --fs-run: clamp(30px, 3.1vw, 45px);
+  --lh-run: 2.06;
+  --fs-mark: clamp(84px, 15.5vw, 236px);
+  --lh-mark: 0.8;
+  --fs-code: 14px;
+  --lh-code: 24px;
+
+  /* tracking */
+  --track-display: -0.012em;
+  --track-headline: -0.02em;
+  --track-mark: -0.03em;
+
+  /* spacing */
+  --pad: 48px;
+  --inner: 56px;
+  --head: 68px;
+  --space-section-top: 40px;
+  --space-section-bottom: 72px;
+  --space-rule-gap: 36px;
+  --hero-caption: 104px;
+
+  /* shape: the page is set square; only pins and the loupe are round */
+  --radius-none: 0;
+  --radius-round: 50%;
+  --stamp-radius: 5px;
+  --tear: 12px;
+
+  /* shadow and edge */
+  --edge-label: 0 0 0 1px var(--hair);
+  --offset-note: 12px 14px;
+  --offset-slip: 10px 12px;
+  --tilt-note: -1.6deg;
+  --tilt-note-m: -1deg;
+  --tilt-slip: 1.2deg;
+  --tilt-stamp: -8deg;
+
+  /* halftone: the two plates and their screens */
+  --screen-ochre-angle: 15deg;
+  --screen-forest-angle: 45deg;
+  --screen-note-frame: radial-gradient(circle, var(--ochre) 1.5px, transparent 1.9px), radial-gradient(circle, var(--ochre) 1.5px, transparent 1.9px);
+  --screen-note-frame-pitch: 5px;
+  --screen-note-shadow: radial-gradient(circle, var(--forest) 1.15px, transparent 1.55px), radial-gradient(circle, var(--forest) 1.15px, transparent 1.55px);
+  --screen-note-shadow-pitch: 6px;
+  --screen-note-shadow-density: 0.42;
+  --screen-slip-shadow: radial-gradient(circle, var(--ochre) 1.5px, transparent 1.9px), radial-gradient(circle, var(--ochre) 1.5px, transparent 1.9px);
+  --screen-slip-shadow-pitch: 6px;
+  --screen-figure: radial-gradient(circle, var(--ochre) 2.05px, transparent 2.45px), radial-gradient(circle, var(--ochre) 2.05px, transparent 2.45px);
+  --screen-figure-pitch: 6px;
+
+  /* motion */
+  --ease-print: cubic-bezier(0.6, 0.05, 0.25, 1);
+  --ease-strike: cubic-bezier(0.55, 0.1, 0.25, 1);
+  --dur-ink: 0.5s;
+  --dur-wipe: 1.25s;
+  --dur-strike: 1.8s;
+  --dur-hover: 0.25s;
+}
+
+@media (max-width: 1180px) {
+  :root {
+    --pad: 36px;
+    --inner: 40px;
+  }
+}
+
+@media (max-width: 860px) {
+  :root {
+    --pad: 16px;
+    --inner: 16px;
+  }
+}
