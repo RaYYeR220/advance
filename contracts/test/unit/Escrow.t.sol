@@ -90,6 +90,7 @@ contract RevenueEscrowTest is Test {
     int256 internal constant ETH_USD = 2400e8;
     uint256 internal constant USDC_PER_WETH = 2400e6;
     uint256 internal constant T0 = 1_750_000_000;
+    uint256 internal constant MIN_ACTIVITY_USDC = 1_000_000;
 
     /// @dev Pool-level WETH fees whose 80% creator share is exactly 1e16 WETH (24 USDC at 2400).
     uint256 internal constant POOL_WETH = 1.25e16;
@@ -192,7 +193,8 @@ contract RevenueEscrowTest is Test {
             ethUsdFeed: address(ethUsdFeed),
             sequencerFeed: address(sequencerFeed),
             maxStaleness: MAX_STALENESS,
-            slippageBps: SLIPPAGE_BPS
+            slippageBps: SLIPPAGE_BPS,
+            minActivityUsdc: MIN_ACTIVITY_USDC
         });
     }
 
@@ -267,6 +269,8 @@ contract RevenueEscrowTest is Test {
         assertEq(escrow.sequencerFeed(), address(sequencerFeed));
         assertEq(escrow.maxStaleness(), MAX_STALENESS);
         assertEq(escrow.slippageBps(), SLIPPAGE_BPS);
+        assertEq(escrow.minActivityUsdc(), MIN_ACTIVITY_USDC);
+        assertEq(escrow.activityUsdc(), 0);
         _assertPhase(RevenueEscrow.Phase.Pending);
         assertEq(escrow.loanId(), 0);
         assertEq(address(escrow.note()), address(0));
@@ -488,6 +492,8 @@ contract RevenueEscrowTest is Test {
         vm.expectEmit(address(escrow));
         emit RevenueEscrow.Forwarded(token, 800e18);
         vm.expectEmit(address(escrow));
+        emit RevenueEscrow.LastRevenueAtUpdated(5e6); // only the distributed part counts
+        vm.expectEmit(address(escrow));
         emit RevenueEscrow.Harvested(1e16, 24e6, 5e6, 19e6);
         vm.expectEmit(address(escrow));
         emit RevenueEscrow.BeneficiaryReturned(treasury);
@@ -553,6 +559,8 @@ contract RevenueEscrowTest is Test {
         _refreshFeed();
         _accrue(POOL_WETH_SMALL, 0);
 
+        vm.expectEmit(address(escrow));
+        emit RevenueEscrow.LastRevenueAtUpdated(2_400_000);
         vm.prank(keeper);
         uint256 repaid = escrow.harvest(0);
 
@@ -579,6 +587,178 @@ contract RevenueEscrowTest is Test {
         assertEq(escrow.lastRevenueAt(), T0);
         assertEq(router.callCount(), 0);
         _assertPhase(RevenueEscrow.Phase.Active);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // harvest: revenue activity (the default timer)
+    // ---------------------------------------------------------------------------------------
+
+    function test_activity_usdcDonation_doesNotMoveLastRevenueAt() public {
+        _bindAndActivate();
+        vm.warp(T0 + 1 days);
+
+        usdc.mint(address(escrow), 1);
+        assertEq(escrow.harvest(0), 1);
+        usdc.mint(address(escrow), 3e6); // even far above the threshold
+        assertEq(escrow.harvest(0), 3e6);
+
+        assertEq(note.totalRepaid(), 3e6 + 1, "donations still repay the note");
+        assertEq(escrow.lastRevenueAt(), T0);
+        assertEq(escrow.activityUsdc(), 0);
+    }
+
+    function test_activity_wethDonation_doesNotMoveLastRevenueAt() public {
+        _bindAndActivate();
+        vm.warp(T0 + 1 days);
+        _refreshFeed();
+        _giveWeth(address(escrow), 1e15);
+
+        assertEq(escrow.harvest(0), 2_400_000);
+
+        assertEq(escrow.lastRevenueAt(), T0);
+        assertEq(escrow.activityUsdc(), 0);
+    }
+
+    function test_activity_donationMixedWithFees_creditsOnlyTheFeeShare() public {
+        _bindAndActivate();
+        vm.warp(T0 + 1 days);
+        _refreshFeed();
+        _accrue(POOL_WETH_SMALL / 4, 0); // creator share 2.5e14 WETH
+        _giveWeth(address(escrow), 7.5e14); // donation
+
+        assertEq(escrow.harvest(0), 2_400_000);
+
+        // Only the fee-derived quarter of the swap counts: 0.6 USDC, below the 1 USDC threshold.
+        assertEq(escrow.activityUsdc(), 600_000);
+        assertEq(escrow.lastRevenueAt(), T0);
+    }
+
+    function test_activity_smallFeesAccumulateAcrossHarvestsUntilThreshold() public {
+        _bindAndActivate();
+        // Each round the creator share is 2e14 WETH = 0.48 USDC of fee-derived repayment.
+        for (uint256 i = 1; i <= 2; ++i) {
+            vm.warp(T0 + i * 1 days);
+            _refreshFeed();
+            _accrue(2.5e14, 0);
+            escrow.harvest(0);
+            assertEq(escrow.activityUsdc(), 480_000 * i);
+            assertEq(escrow.lastRevenueAt(), T0);
+        }
+
+        vm.warp(T0 + 3 days);
+        _refreshFeed();
+        _accrue(2.5e14, 0);
+        vm.expectEmit(address(escrow));
+        emit RevenueEscrow.LastRevenueAtUpdated(1_440_000);
+        escrow.harvest(0);
+
+        assertEq(escrow.lastRevenueAt(), T0 + 3 days);
+        assertEq(escrow.activityUsdc(), 0);
+        assertEq(note.totalRepaid(), 1_440_000);
+    }
+
+    function test_activity_thirdPartyCollectThenHarvest_counts() public {
+        _bindAndActivate();
+        vm.warp(T0 + 1 days);
+        _refreshFeed();
+        _accrue(POOL_WETH_SMALL, 0);
+        vm.prank(keeper);
+        fm.collectFees(POOL_ID); // the escrow's share stays cumulated in the manager
+
+        vm.expectEmit(address(escrow));
+        emit RevenueEscrow.LastRevenueAtUpdated(2_400_000);
+        escrow.harvest(0);
+
+        assertEq(escrow.lastRevenueAt(), T0 + 1 days);
+    }
+
+    /// @dev Anyone holding zero shares can call `updateBeneficiary(poolId, escrow)`: the fees
+    /// manager then releases the escrow's cumulated fees to it outside any harvest. Those are
+    /// still real fees and must still count, or a griefer could force a false default.
+    function test_activity_feesPushedOutsideHarvest_stillCount() public {
+        _bindAndActivate();
+        vm.warp(T0 + 1 days);
+        _refreshFeed();
+        _accrue(POOL_WETH_SMALL, 0);
+        vm.startPrank(keeper);
+        fm.collectFees(POOL_ID);
+        fm.updateBeneficiary(POOL_ID, address(escrow));
+        vm.stopPrank();
+        assertEq(weth.balanceOf(address(escrow)), 1e15, "released before the harvest");
+
+        vm.expectEmit(address(escrow));
+        emit RevenueEscrow.LastRevenueAtUpdated(2_400_000);
+        escrow.harvest(0);
+
+        assertEq(escrow.lastRevenueAt(), T0 + 1 days);
+        assertEq(fm.getShares(POOL_ID, address(escrow)), ESCROW_SHARES);
+    }
+
+    function test_activity_nativeEthPool_counts() public {
+        _deployLoan(address(new MockERC20("Agent", "AGT", 18)), true);
+        _bindAndActivate();
+        vm.warp(T0 + 1 days);
+        _refreshFeed();
+        _accrue(POOL_WETH_SMALL, 0);
+
+        vm.expectEmit(address(escrow));
+        emit RevenueEscrow.LastRevenueAtUpdated(2_400_000);
+        escrow.harvest(0);
+
+        assertEq(escrow.lastRevenueAt(), T0 + 1 days);
+    }
+
+    function test_activity_feesBelowSwapMinimum_carryToNextSwap() public {
+        _bindAndActivate();
+        vm.warp(T0 + 1 days);
+        _refreshFeed();
+        _accrue(6.25e11, 0); // creator share 5e11 WETH: below MIN_SWAP_WETH, kept
+        escrow.harvest(0);
+        assertEq(weth.balanceOf(address(escrow)), 5e11);
+        assertEq(escrow.activityUsdc(), 0);
+
+        _accrue(POOL_WETH_SMALL, 0);
+        vm.expectEmit(address(escrow));
+        emit RevenueEscrow.LastRevenueAtUpdated(2_401_200); // both rounds' fees count
+        escrow.harvest(0);
+
+        assertEq(router.last().amountIn, 1.0005e15);
+    }
+
+    /// @dev If another holder moves its shares onto the escrow, the interval spanning that change
+    /// is priced at the new share count; the credit must still never exceed the WETH swapped.
+    function test_activity_sharesAddedByAnotherHolder_neverCreditMoreThanSwapped() public {
+        _bindAndActivate();
+        vm.warp(T0 + 1 days);
+        _refreshFeed();
+        _accrue(POOL_WETH_SMALL, 0);
+        vm.prank(keeper);
+        fm.collectFees(POOL_ID);
+        vm.prank(protocolOwner);
+        fm.updateBeneficiary(POOL_ID, address(escrow)); // releases 1e15 WETH to the escrow
+        assertEq(fm.getShares(POOL_ID, address(escrow)), WAD);
+        usdc.mint(address(escrow), 1e6); // plus a donation
+
+        vm.expectEmit(address(escrow));
+        emit RevenueEscrow.LastRevenueAtUpdated(2_400_000);
+        assertEq(escrow.harvest(0), 3_400_000);
+    }
+
+    function test_activity_feesReleasedBeforeActivation_doNotCount() public {
+        _bind();
+        _accrue(POOL_WETH, 0);
+        escrow.harvest(0); // Pending: forwarded to the treasury
+        creditLine.setState(CreditLine.State.Active);
+        vm.prank(address(hub));
+        escrow.activate();
+
+        vm.warp(T0 + 1 days);
+        _refreshFeed();
+        _giveWeth(address(escrow), 1e15);
+        escrow.harvest(0);
+
+        assertEq(escrow.lastRevenueAt(), T0);
+        assertEq(escrow.activityUsdc(), 0);
     }
 
     function test_harvest_active_afterThirdPartyCollect_stillGetsEscrowShare() public {

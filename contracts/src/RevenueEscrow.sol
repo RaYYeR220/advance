@@ -45,6 +45,7 @@ contract RevenueEscrow is ReentrancyGuardTransient {
     /// @param sequencerFeed Chainlink L2 sequencer uptime feed; `address(0)` skips the check.
     /// @param maxStaleness Maximum age, in seconds, of the ETH/USD price.
     /// @param slippageBps Allowed swap slippage below the oracle price, in basis points.
+    /// @param minActivityUsdc Fee-derived USDC that must reach the note before `lastRevenueAt` moves.
     struct Config {
         address hub;
         address feesManager;
@@ -57,6 +58,7 @@ contract RevenueEscrow is ReentrancyGuardTransient {
         address sequencerFeed;
         uint64 maxStaleness;
         uint16 slippageBps;
+        uint256 minActivityUsdc;
     }
 
     /// @notice Smallest WETH balance worth swapping; below it the WETH is kept for a later harvest.
@@ -64,6 +66,9 @@ contract RevenueEscrow is ReentrancyGuardTransient {
 
     /// @dev Uniswap v3 WETH/USDC pool fee tier used for the swap (0.05%).
     uint24 internal constant SWAP_POOL_FEE = 500;
+
+    /// @dev Share denominator used by the Doppler fees manager.
+    uint256 internal constant WAD = 1e18;
 
     /// @notice AdvanceHub; the only caller allowed to `bind`, `activate` and `release`.
     address public immutable hub;
@@ -87,10 +92,16 @@ contract RevenueEscrow is ReentrancyGuardTransient {
     uint64 public immutable maxStaleness;
     /// @notice Allowed swap slippage below the oracle price, in basis points.
     uint16 public immutable slippageBps;
+    /// @notice Fee-derived USDC that must be distributed to the note (accumulated across
+    /// harvests) before `lastRevenueAt` moves forward.
+    uint256 public immutable minActivityUsdc;
 
     /// @notice Current lifecycle phase.
     Phase public phase;
-    /// @notice Timestamp of activation or of the last harvest that paid USDC into the note.
+    /// @notice Timestamp of activation, or of the last harvest at which fee-derived USDC
+    /// distributed to the note since the previous update reached `minActivityUsdc`. Only USDC
+    /// swapped from WETH the fees manager released to the escrow counts; donated USDC or WETH
+    /// still repays the note but never moves this timestamp.
     uint64 public lastRevenueAt;
     /// @notice The loan's revenue note (unset until `bind`).
     RevenueNote public note;
@@ -98,6 +109,14 @@ contract RevenueEscrow is ReentrancyGuardTransient {
     address public creditLine;
     /// @notice The loan id this escrow is bound to (0 until `bind`).
     uint256 public loanId;
+    /// @notice Fee-derived USDC distributed to the note since `lastRevenueAt` last moved.
+    uint256 public activityUsdc;
+    /// @dev The fees manager's last-cumulated fee counter for the escrow on the ETH leg, as of
+    /// activation or the last swap. Growth since then, times the escrow's shares, is the WETH the
+    /// manager has released to the escrow: by the escrow's own collect, or by anyone's
+    /// `updateBeneficiary` naming it. Reading the manager's accounting instead of balances keeps
+    /// donations out of it.
+    uint256 internal activityCumulatedFees;
 
     /// @notice Emitted by every harvest while Active.
     /// @param wethIn WETH swapped (0 if the balance was below `MIN_SWAP_WETH`).
@@ -120,6 +139,10 @@ contract RevenueEscrow is ReentrancyGuardTransient {
     /// @notice Emitted when `release` could not collect fees first; the hand-back still releases
     /// already-cumulated fees, and uncollected ones accrue to the treasury's shares.
     event CollectFailed();
+    /// @notice Emitted when accumulated fee-derived repayment reaches `minActivityUsdc` and
+    /// `lastRevenueAt` moves to the current block.
+    /// @param activityUsdc The accumulated fee-derived USDC that triggered the update.
+    event LastRevenueAtUpdated(uint256 activityUsdc);
 
     /// @notice Thrown when a caller other than `hub` calls a hub-only function.
     error NotHub();
@@ -167,6 +190,7 @@ contract RevenueEscrow is ReentrancyGuardTransient {
         sequencerFeed = cfg.sequencerFeed;
         maxStaleness = cfg.maxStaleness;
         slippageBps = cfg.slippageBps;
+        minActivityUsdc = cfg.minActivityUsdc;
     }
 
     /// @notice Wraps native ETH (e.g. fees from a native-ETH pool) into WETH so it is swapped or
@@ -205,9 +229,11 @@ contract RevenueEscrow is ReentrancyGuardTransient {
         if (phase != Phase.Pending) revert WrongPhase();
         CreditLine.State state = CreditLine(creditLine).state();
         if (state != CreditLine.State.Active) revert WrongCreditLineState(state);
+        uint256 cumulated = _lastCumulatedEthFees(feesManager.getPoolKey(poolId));
 
         phase = Phase.Active;
         lastRevenueAt = uint64(block.timestamp);
+        activityCumulatedFees = cumulated;
     }
 
     /// @notice Collects the escrow's fee share and routes it. Callable by anyone. The agent-token
@@ -215,7 +241,9 @@ contract RevenueEscrow is ReentrancyGuardTransient {
     /// Active, WETH and USDC go to the treasury too. While Active, WETH of at least
     /// `MIN_SWAP_WETH` is swapped to USDC with a minimum output of the larger of the oracle bound
     /// and `minUsdcOut`; USDC up to the note's remaining cap is distributed and the rest goes to
-    /// the treasury; reaching the cap closes the escrow and returns the beneficiary shares.
+    /// the treasury; reaching the cap closes the escrow and returns the beneficiary shares. The
+    /// part of the distribution that came from fee WETH (pro-rata to the swap) counts toward
+    /// `minActivityUsdc`, which moves `lastRevenueAt`; donated USDC or WETH never does.
     /// @param minUsdcOut Caller-supplied minimum swap output; only raises the oracle bound.
     /// @return repaid USDC distributed to the note by this call.
     function harvest(uint256 minUsdcOut) external nonReentrant returns (uint256 repaid) {
@@ -233,8 +261,11 @@ contract RevenueEscrow is ReentrancyGuardTransient {
 
         uint256 wethIn = weth.balanceOf(address(this));
         uint256 usdcOut;
+        uint256 feeUsdcOut;
         if (wethIn >= MIN_SWAP_WETH) {
+            uint256 feeWeth = _takeFeeWeth(key, wethIn);
             usdcOut = _swapToUsdc(wethIn, minUsdcOut);
+            feeUsdcOut = usdcOut * feeWeth / wethIn;
         } else {
             wethIn = 0;
         }
@@ -246,7 +277,7 @@ contract RevenueEscrow is ReentrancyGuardTransient {
         uint256 toTreasury = usdcBalance - repaid;
 
         if (repaid != 0) {
-            lastRevenueAt = uint64(block.timestamp);
+            _recordActivity(feeUsdcOut < repaid ? feeUsdcOut : repaid);
             usdc.forceApprove(address(note_), repaid);
             note_.distribute(repaid);
         }
@@ -313,6 +344,42 @@ contract RevenueEscrow is ReentrancyGuardTransient {
         _forwardAgentLeg(key.currency1);
         _forward(address(weth));
         _forward(address(usdc));
+    }
+
+    /// @dev Fee WETH released to the escrow since activation or the last swap, capped at `wethIn`,
+    /// and advances the snapshot. Uses the escrow's current shares for the whole interval, which is
+    /// exact while its shares are unchanged (only the escrow can remove them; if another holder
+    /// adds shares to it, the one interval spanning that change can over-count, still capped at
+    /// `wethIn`).
+    function _takeFeeWeth(PoolKey memory key, uint256 wethIn) internal returns (uint256 feeWeth) {
+        uint256 cumulated = _lastCumulatedEthFees(key);
+        uint256 previous = activityCumulatedFees;
+        if (cumulated <= previous) return 0;
+        activityCumulatedFees = cumulated;
+
+        feeWeth = (cumulated - previous) * feesManager.getShares(poolId, address(this)) / WAD;
+        if (feeWeth > wethIn) feeWeth = wethIn;
+    }
+
+    /// @dev The fees manager's last-cumulated fee counter for the escrow on the pool's ETH leg.
+    function _lastCumulatedEthFees(PoolKey memory key) internal view returns (uint256) {
+        return _isEthLeg(key.currency0)
+            ? feesManager.getLastCumulatedFees0(poolId, address(this))
+            : feesManager.getLastCumulatedFees1(poolId, address(this));
+    }
+
+    /// @dev Adds fee-derived USDC that reached the note. Once the running total reaches
+    /// `minActivityUsdc`, moves `lastRevenueAt` to now and starts a new total.
+    function _recordActivity(uint256 feeUsdc) internal {
+        if (feeUsdc == 0) return;
+        uint256 accumulated = activityUsdc + feeUsdc;
+        if (accumulated < minActivityUsdc) {
+            activityUsdc = accumulated;
+            return;
+        }
+        activityUsdc = 0;
+        lastRevenueAt = uint64(block.timestamp);
+        emit LastRevenueAtUpdated(accumulated);
     }
 
     /// @dev Swaps `wethIn` WETH to USDC through the router, requiring at least the larger of the
