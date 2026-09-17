@@ -31,6 +31,13 @@ export interface QualityContext {
    * from on-chain fee accrual, never from off-chain claim/display data). Fewer than 2
    * buckets, or a non-positive mean, leaves `cv` undefined (no haircut contribution)
    * rather than fabricating a signal.
+   *
+   * A token between 3 and 7 days old has some of its 8 daily block anchors fall before
+   * the pool was locked; those anchors read as zero accrual (see
+   * `isPreLockWrongPoolStatus`), which inflates the spread between buckets and therefore
+   * `cv`. This is a real (if age-driven) volatility signal, not a bug, and it errs on the
+   * conservative side — a young token's CV haircut only ever gets stronger from this, never
+   * weaker.
    */
   recentDailyRevenue: readonly bigint[];
 }

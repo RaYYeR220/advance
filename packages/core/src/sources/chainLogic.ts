@@ -329,8 +329,8 @@ export function buildChainReader(ops: ChainOps): ChainReader {
     });
     const capped = all.slice(0, cap);
 
-    // Batched (bounded-concurrency), not sequential: the brief requires tx.from lookups
-    // to be issued concurrently rather than one at a time.
+    // Batched (bounded-concurrency), not sequential: tx.from lookups are issued
+    // concurrently, up to BATCH_CONCURRENCY at a time, instead of one at a time.
     const uniqueHashes = [...new Set(capped.map((s) => s.transactionHash))];
     const senders = await mapBatched(uniqueHashes, (hash) =>
       ops.getTransactionSender(hash),
@@ -359,12 +359,15 @@ export function buildChainReader(ops: ChainOps): ChainReader {
     block?: bigint,
   ): Promise<EthUsdPrice> {
     const atBlock = block ?? (await getLatestBlock()).number;
-    const [roundId, answer, startedAt, updatedAt, answeredInRound] =
-      await ops.getLatestRoundData(feed, atBlock);
+    const [[roundId, answer, startedAt, updatedAt, answeredInRound], decimals] =
+      await Promise.all([
+        ops.getLatestRoundData(feed, atBlock),
+        ops.getFeedDecimals(feed, atBlock),
+      ]);
     return {
       roundId,
       answer,
-      decimals: 8,
+      decimals,
       startedAt,
       updatedAt,
       answeredInRound,

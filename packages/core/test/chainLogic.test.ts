@@ -43,6 +43,8 @@ function fakeOps(overrides: Partial<ChainOps>): ChainOps {
       )) as ChainOps["getTransactionSender"],
     getLatestRoundData: (overrides.getLatestRoundData ??
       notImplemented("getLatestRoundData")) as ChainOps["getLatestRoundData"],
+    getFeedDecimals: (overrides.getFeedDecimals ??
+      notImplemented("getFeedDecimals")) as ChainOps["getFeedDecimals"],
   };
 }
 
@@ -104,6 +106,38 @@ describe("getSwaps: batched tx.from resolution", () => {
     expect(maxInFlight).toBeGreaterThan(1);
     expect(maxInFlight).toBeLessThanOrEqual(20);
     expect(maxInFlight).toBe(20); // first of two rounds (30 hashes, batch size 20) saturates it
+  });
+});
+
+describe("getEthUsdPrice: decimals read from the feed", () => {
+  const FEED: Address = "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70";
+
+  it("reports the feed's real decimals(), not a hardcoded 8", async () => {
+    const ops = fakeOps({
+      async getLatestRoundData() {
+        return [1n, 400_000_000_000n, 1_000n, 1_000n, 1n];
+      },
+      async getFeedDecimals() {
+        return 6; // deliberately not 8, to prove this isn't a hardcoded constant
+      },
+    });
+    const reader = buildChainReader(ops);
+    const price = await reader.getEthUsdPrice(FEED, 100n);
+    expect(price.decimals).toBe(6);
+  });
+
+  it("still reports 8 for a feed that genuinely answers 8 (the real, common case)", async () => {
+    const ops = fakeOps({
+      async getLatestRoundData() {
+        return [1n, 400_000_000_000n, 1_000n, 1_000n, 1n];
+      },
+      async getFeedDecimals() {
+        return 8;
+      },
+    });
+    const reader = buildChainReader(ops);
+    const price = await reader.getEthUsdPrice(FEED, 100n);
+    expect(price.decimals).toBe(8);
   });
 });
 

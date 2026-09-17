@@ -47,6 +47,8 @@ export interface ChainFixture {
     transactions: Record<string, Address>;
     /** `${feed}:${block}` -> [roundId, answer, startedAt, updatedAt, answeredInRound] (decimal strings) */
     roundData: Record<string, [string, string, string, string, string]>;
+    /** `${feed}:${block}` -> the feed's `decimals()` (small uint8, plain number). */
+    decimals: Record<string, number>;
   };
 }
 
@@ -71,6 +73,7 @@ function emptyCalls(): ChainFixture["calls"] {
     swapLogs: {},
     transactions: {},
     roundData: {},
+    decimals: {},
   };
 }
 
@@ -200,6 +203,13 @@ export function createFixtureChainOps(fixture: ChainFixture): ChainOps {
         BigInt(entry[4]),
       ];
     },
+
+    async getFeedDecimals(feed, block) {
+      const key = `${feed}:${block}`;
+      const entry = calls.decimals[key];
+      if (entry === undefined) throw new FixtureMissError("getFeedDecimals", key);
+      return entry;
+    },
   };
 }
 
@@ -313,6 +323,12 @@ export function createRecordingChainOps(
         result[3].toString(),
         result[4].toString(),
       ];
+      return result;
+    },
+
+    async getFeedDecimals(feed, block) {
+      const result = await live.getFeedDecimals(feed, block);
+      calls.decimals[`${feed}:${block}`] = result;
       return result;
     },
   };

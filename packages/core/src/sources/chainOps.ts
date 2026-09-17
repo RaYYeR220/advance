@@ -101,6 +101,9 @@ export interface ChainOps {
     feed: Address,
     block: bigint,
   ): Promise<[bigint, bigint, bigint, bigint, bigint]>;
+  /** `eth_call decimals()` on a Chainlink aggregator, so the decimals guard in
+   * `computeRevenue` checks a real on-chain read rather than an assumed constant. */
+  getFeedDecimals(feed: Address, block: bigint): Promise<number>;
 }
 
 /** Live `ChainOps` backed by an archive-capable JSON-RPC endpoint. */
@@ -222,6 +225,15 @@ export function createLiveChainOps(rpcUrl: string): ChainOps {
         blockNumber: block,
       })) as [bigint, bigint, bigint, bigint, bigint];
       return result;
+    },
+
+    async getFeedDecimals(feed, block) {
+      return client.readContract({
+        address: feed,
+        abi: chainlinkAggregatorAbi,
+        functionName: "decimals",
+        blockNumber: block,
+      });
     },
   };
 }

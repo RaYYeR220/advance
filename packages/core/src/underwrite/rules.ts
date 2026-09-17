@@ -51,8 +51,12 @@ async function defaultIsEscrowed(_poolId: Hex): Promise<boolean> {
  * short-circuit before touching them. A `quality` that's present but built from a
  * suspiciously empty swap sample (zero swaps despite nonzero d7 revenue — the swap query
  * likely failed or was mis-scoped, not that trading genuinely never happened) also fails
- * closed rather than silently skipping the wash/concentration checks. Otherwise every
- * applicable rule is evaluated and all matching reasons are returned (not just the first).
+ * closed rather than silently skipping the wash/concentration checks. `rev.dailyRevenueWei`
+ * must carry exactly the 7 on-chain buckets `computeRevenue` always produces (or throws) —
+ * anything else means the caller bypassed `computeRevenue`, so this fails closed instead of
+ * letting `computeQuality`'s documented "fewer than 2 buckets -> no haircut" default apply
+ * to data that should never reach it that way. Otherwise every applicable rule is evaluated
+ * and all matching reasons are returned (not just the first).
  */
 export async function applyRules(
   ctx: RulesContext,
@@ -63,6 +67,7 @@ export async function applyRules(
   if (!ctx.poolFound) return ["not_bankr_doppler"];
   if (!ctx.isWethPool) return ["not_weth_pool"];
   if (!rev) return ["data_unavailable"];
+  if (rev.dailyRevenueWei.length !== 7) return ["data_unavailable"];
   if (!quality) return ["data_unavailable"];
   if (quality.swapCount === 0 && rev.revenueMicroUsd.d7 > 0n) return ["data_unavailable"];
 

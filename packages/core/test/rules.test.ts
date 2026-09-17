@@ -24,13 +24,15 @@ function baseCtx(overrides: Partial<RulesContext> = {}): RulesContext {
   return { poolId: POOL_ID, poolFound: true, isWethPool: true, ...overrides };
 }
 
+const SEVEN_ZERO_BUCKETS: readonly bigint[] = [0n, 0n, 0n, 0n, 0n, 0n, 0n];
+
 function rev(overrides: Partial<RevenueWindows> = {}): RevenueWindows {
   return {
     revenueWei: { d1: 0n, d7: 0n, d30: 0n },
     revenueMicroUsd: { d1: 1_000_000n, d7: 7_000_000n, d30: 30_000_000n },
     ageSeconds: 20n * DAY,
     creatorSharesWad: 950_000_000_000_000_000n,
-    dailyRevenueWei: [],
+    dailyRevenueWei: SEVEN_ZERO_BUCKETS,
     ...overrides,
   };
 }
@@ -85,6 +87,20 @@ describe("applyRules (synthetic)", () => {
 
   it("quality unexpectedly missing despite a found WETH pool and rev -> data_unavailable (fails closed)", async () => {
     const reasons = await applyRules(baseCtx(), rev(), undefined);
+    expect(reasons).toEqual(["data_unavailable"]);
+  });
+
+  it("dailyRevenueWei with fewer than 7 buckets -> data_unavailable (fails closed instead of letting computeQuality's no-haircut default flow through)", async () => {
+    const reasons = await applyRules(baseCtx(), rev({ dailyRevenueWei: [] }), quality());
+    expect(reasons).toEqual(["data_unavailable"]);
+  });
+
+  it("dailyRevenueWei with more than 7 buckets -> data_unavailable", async () => {
+    const reasons = await applyRules(
+      baseCtx(),
+      rev({ dailyRevenueWei: [...SEVEN_ZERO_BUCKETS, 0n] }),
+      quality(),
+    );
     expect(reasons).toEqual(["data_unavailable"]);
   });
 
@@ -236,8 +252,10 @@ describe("applyRules (real fixtures)", () => {
     });
     expect(revenue.ageSeconds).toBeLessThan(3n * DAY);
     expect(revenue.revenueMicroUsd.d7).toBe(0n);
-    // Still exactly 7 on-chain buckets, all zero (the pool didn't exist yet at any of the
-    // 8 daily anchors) — computeRevenue doesn't throw for this legitimately-empty history.
+    // Still exactly 7 on-chain buckets, all zero. Anchor 0 (now) is after the lock; its
+    // bucket is 0 because there were no swaps yet, not because the pool didn't exist.
+    // Anchors 1-7 do predate the lock (WrongPoolStatus pre-lock reads as zero accrual).
+    // Either way computeRevenue doesn't throw for this legitimately-empty history.
     expect(revenue.dailyRevenueWei).toEqual([0n, 0n, 0n, 0n, 0n, 0n, 0n]);
 
     const latest = await reader.getLatestBlock();

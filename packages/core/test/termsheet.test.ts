@@ -49,7 +49,7 @@ const vectorPath = resolve(
 const vectorExists = existsSync(vectorPath);
 
 describe("termsheet", () => {
-  it("typehash string matches plan 00 verbatim", () => {
+  it("typehash string matches the canonical TermSheet EIP-712 type string verbatim", () => {
     expect(termSheetTypeString).toBe(EXPECTED_TYPE_STRING);
   });
 

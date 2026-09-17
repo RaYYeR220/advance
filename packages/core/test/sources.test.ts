@@ -179,9 +179,9 @@ describe("ChainReader (fixture-backed, Ratspeak)", () => {
   });
 
   it("computes trailing 1d creator WETH revenue ≈ 0.01215 WETH (±25%)", async () => {
-    // Recorded value at fixture time (see task-2-report.md); ±25% keeps this stable
-    // across re-recordings (1d revenue is inherently noisy — a single active day can
-    // move it a lot) while still catching a formula regression the way the 30d test does.
+    // Recorded value at fixture time; ±25% keeps this stable across re-recordings (1d
+    // revenue is inherently noisy — a single active day can move it a lot) while still
+    // catching a formula regression the way the 30d test does.
     const RECORDED_1D_WETH = 0.012147120945590388;
     const reader = createFixtureChainReader(ratspeakChain);
     const window = await reader.getCreatorRevenueWindow({

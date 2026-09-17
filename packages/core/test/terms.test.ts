@@ -24,7 +24,7 @@ function rev(overrides: Partial<RevenueWindows> = {}): RevenueWindows {
     revenueMicroUsd: { d1: 0n, d7: 0n, d30: 0n },
     ageSeconds: 20n * DAY,
     creatorSharesWad: 950_000_000_000_000_000n,
-    dailyRevenueWei: [],
+    dailyRevenueWei: [0n, 0n, 0n, 0n, 0n, 0n, 0n],
     ...overrides,
   };
 }
@@ -75,14 +75,14 @@ describe("computeTerms", () => {
     expect(terms.auctionBlocks).toBe(250n);
   });
 
-  it("decaying Ratspeak-like profile (large d30, tiny d1) -> small base, decay floors at the amended 1000bps minimum", () => {
+  it("decaying Ratspeak-like profile (large d30, tiny d1) -> small base, decay floors at the 1000bps minimum", () => {
     const r = rev({ revenueMicroUsd: { d1: 1_000n, d7: 700_000n, d30: 90_000_000n } });
     const terms = computeTerms(r, quality(10000), { network: "mainnet" });
 
     // base = min(r7=100_000, r30=3_000_000, (r1+r7)/2=50_500) = 50_500
     // decayBps = clamp(10000*100_000/3_000_000, 1000, 10000) = clamp(333, 1000, 10000) = 1000
-    // (amended floor: the old [5000,10000]/[0.97,1.0] pair let this project ~1.59M micro-USD;
-    // the amended [1000,10000]/[0.90,1.0] pair decays it much harder, to ~530k.)
+    // The wide [1000,10000]/[0.90,1.0] decay range lets a decayBps this low pull the retention
+    // factor `q` down to 0.90, so the 90d sum decays hard off `base` (~530k, not a multi-x of it).
     expect(terms.projected90dMicroUsd).toBe(530_039n);
     expect(terms.capMicroUsd).toBe(260_000n); // ~$0.26 — small, decay-aware cap
     expect(terms.minPrincipal).toBe(104_000n);
@@ -90,9 +90,9 @@ describe("computeTerms", () => {
   });
 
   it("sanity: a collapsing token (r1 well under r7/7, large historical r30) never projects more than 90x its current daily revenue", () => {
-    // Regression case for the amended clamps: under the old [5000,10000]/[0.97,1.0] pair
-    // this same input projected 172_966 micro-USD (~173x r1=1000) — exactly the failure
-    // mode the review flagged. The amended clamps bring it under the 90x bound.
+    // Regression guard: with a steeply decaying r7/r30 ratio and a tiny r1, the 90d
+    // projection must stay within a modest multiple of r1 rather than compounding a much
+    // larger `base` (min(r7, r30, (r1+r7)/2)) across 90 days near-undamped.
     const r1 = 1_000n;
     const rInput = rev({ revenueMicroUsd: { d1: r1, d7: 70_000n, d30: 15_000_000n } });
     const terms = computeTerms(rInput, quality(10000), { network: "mainnet" });

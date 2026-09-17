@@ -52,6 +52,7 @@
     "uncollectedFees": {},
     "swapLogs": {},
     "transactions": {},
-    "roundData": {}
+    "roundData": {},
+    "decimals": {}
   }
 }

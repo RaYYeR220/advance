@@ -2,6 +2,13 @@
 export const chainlinkAggregatorAbi = [
   {
     type: "function",
+    name: "decimals",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint8" }],
+  },
+  {
+    type: "function",
     name: "latestRoundData",
     stateMutability: "view",
     inputs: [],

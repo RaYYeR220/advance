@@ -55,6 +55,9 @@ function makeFakeLiveOps(): ChainOps {
     getLatestRoundData: notImplemented(
       "getLatestRoundData",
     ) as ChainOps["getLatestRoundData"],
+    getFeedDecimals: notImplemented(
+      "getFeedDecimals",
+    ) as ChainOps["getFeedDecimals"],
   };
 }
 

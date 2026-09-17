@@ -3,9 +3,12 @@ import type { RevenueWindows } from "./revenue.js";
 
 const DAY_SECONDS = 86_400n;
 const PROJECTION_DAYS = 90;
-/** `q = (decayBps/10000)^(1/DECAY_EXPONENT)`. The [1000,10000]/[0.90,1.0] clamps below
- * keep a collapsing token (r1 far below r7/7) from projecting many multiples of its
- * current daily revenue over 90 days — a tighter [5000]/[0.97] pair let that happen. */
+/** `q = (decayBps/10000)^(1/DECAY_EXPONENT)`. The [DECAY_MIN_BPS,DECAY_MAX_BPS]/[Q_MIN,Q_MAX]
+ * clamps below don't bound a collapsing token's total projection in general — `base` itself
+ * can still be much larger than `r1`. What they actually do is widen how far a low r7/r30
+ * ratio is allowed to pull the daily retention factor `q` down (to as low as 0.90), so a
+ * token whose 7d revenue rate has fallen steeply relative to its 30d rate decays hard over
+ * the 90-day sum instead of projecting at a near-flat rate. */
 const DECAY_EXPONENT = 23;
 const DECAY_MIN_BPS = 1000n;
 const DECAY_MAX_BPS = 10000n;
