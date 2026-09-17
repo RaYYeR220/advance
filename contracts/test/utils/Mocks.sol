@@ -6,7 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {IChainlink} from "../../src/interfaces/IChainlink.sol";
-import {Checkpoint, ICCA} from "../../src/interfaces/ICCA.sol";
+import {AuctionParameters, Checkpoint, ICCA, ICCAFactory} from "../../src/interfaces/ICCA.sol";
 import {IAdvanceHub} from "../../src/interfaces/IAdvanceHub.sol";
 import {IDopplerFeesManager, PoolKey} from "../../src/interfaces/IDopplerFeesManager.sol";
 import {ISwapRouter02} from "../../src/interfaces/ISwapRouter02.sol";
@@ -227,7 +227,16 @@ contract MockAuction is ICCA {
         totalSold += amount;
     }
 
-    function onTokensReceived() external {}
+    /// @notice Number of `onTokensReceived` calls received.
+    uint256 public tokensReceivedCalls;
+    /// @notice This contract's note balance at the last `onTokensReceived` call (real CCA
+    /// requires the full supply to be held by then).
+    uint256 public balanceAtTokensReceived;
+
+    function onTokensReceived() external {
+        tokensReceivedCalls++;
+        balanceAtTokensReceived = _noteToken.balanceOf(address(this));
+    }
 
     function submitBid(uint256, uint128, address, uint256, bytes calldata) external payable returns (uint256) {
         return 0;
@@ -431,6 +440,7 @@ contract MockFeesManager is IDopplerFeesManager {
     mapping(bytes32 poolId => PoolKey) internal _poolKeys;
     bool internal _locked;
     bool public collectReverts;
+    bool public updateBeneficiaryReverts;
 
     event Release(bytes32 indexed poolId, address indexed beneficiary, uint256 fees0, uint256 fees1);
     event Collect(bytes32 indexed poolId, uint256 fees0, uint256 fees1);
@@ -477,6 +487,11 @@ contract MockFeesManager is IDopplerFeesManager {
         collectReverts = reverts_;
     }
 
+    /// @notice Test hook: makes `updateBeneficiary` revert (a fee release that cannot be paid out).
+    function setUpdateBeneficiaryReverts(bool reverts_) external {
+        updateBeneficiaryReverts = reverts_;
+    }
+
     function collectFees(bytes32 poolId) external nonReentrant returns (uint128 fees0, uint128 fees1) {
         if (collectReverts) revert WrongPoolStatus();
 
@@ -494,6 +509,7 @@ contract MockFeesManager is IDopplerFeesManager {
     }
 
     function updateBeneficiary(bytes32 poolId, address newBeneficiary) external nonReentrant {
+        if (updateBeneficiaryReverts) revert NativeTransferFailed();
         if (newBeneficiary == msg.sender) revert InvalidNewBeneficiary();
 
         _releaseFees(poolId, msg.sender);
@@ -606,5 +622,218 @@ contract MockSwapRouter is ISwapRouter02 {
         if (!ignoreMinimum && amountOut < params.amountOutMinimum) revert TooLittleReceived();
 
         MockERC20(params.tokenOut).mint(params.recipient, amountOut * deliverBps / BPS);
+    }
+}
+
+/// @notice Mock of the CCA v2.1.0 factory. `create` decodes `AuctionParameters`, enforces the
+/// same parameter rules the real auction constructor does (nonzero tick spacing, a floor on a
+/// tick multiple, `startBlock` not in the past, `endBlock > startBlock`, `claimBlock >= endBlock`,
+/// packed `(uint24 mps, uint40 blocks)` steps summing to exactly 1e7 mps and ending exactly at
+/// `endBlock`, a supply that fits `uint128`), then CREATE2-deploys a `MockAuction` wired to the
+/// decoded currency and recipients. Like the real factory it neither pulls nor mints tokens: the
+/// caller must transfer the supply in and call `onTokensReceived`. Records the last call.
+contract MockCCAFactory is ICCAFactory {
+    uint256 internal constant MPS_TOTAL = 1e7;
+    uint256 internal constant STEP_BYTES = 8;
+
+    /// @notice Number of successful `create` calls.
+    uint256 public createCount;
+    /// @notice Token passed to the last `create`.
+    address public lastToken;
+    /// @notice Amount passed to the last `create`.
+    uint256 public lastAmount;
+    /// @notice Salt passed to the last `create`.
+    bytes32 public lastSalt;
+    /// @notice Caller of the last `create`.
+    address public lastSender;
+    AuctionParameters internal _lastParams;
+
+    error InvalidTickSpacing();
+    error FloorNotOnTick();
+    error StartBlockInPast();
+    error InvalidEndBlock();
+    error InvalidClaimBlock();
+    error InvalidStepsData();
+    error SupplyTooLarge();
+
+    function create(address token, uint256 amount, bytes calldata configData, bytes32 salt)
+        external
+        returns (address auction)
+    {
+        AuctionParameters memory params = abi.decode(configData, (AuctionParameters));
+        _validate(params, amount);
+
+        auction = address(
+            new MockAuction{salt: _salt(msg.sender, salt)}(
+                params.currency, token, params.fundsRecipient, params.tokensRecipient, params.endBlock
+            )
+        );
+
+        createCount++;
+        lastToken = token;
+        lastAmount = amount;
+        lastSalt = salt;
+        lastSender = msg.sender;
+        _lastParams = params;
+    }
+
+    function getAddress(address token, uint256, bytes calldata configData, bytes32 salt, address sender)
+        external
+        view
+        returns (address)
+    {
+        AuctionParameters memory params = abi.decode(configData, (AuctionParameters));
+        bytes memory initCode = abi.encodePacked(
+            type(MockAuction).creationCode,
+            abi.encode(params.currency, token, params.fundsRecipient, params.tokensRecipient, params.endBlock)
+        );
+        return address(
+            uint160(
+                uint256(
+                    keccak256(abi.encodePacked(bytes1(0xff), address(this), _salt(sender, salt), keccak256(initCode)))
+                )
+            )
+        );
+    }
+
+    /// @notice The `AuctionParameters` decoded by the last `create`.
+    function lastParams() external view returns (AuctionParameters memory) {
+        return _lastParams;
+    }
+
+    function _salt(address sender, bytes32 salt) internal pure returns (bytes32) {
+        return keccak256(abi.encode(sender, salt));
+    }
+
+    function _validate(AuctionParameters memory params, uint256 amount) internal view {
+        if (amount > type(uint128).max) revert SupplyTooLarge();
+        if (params.tickSpacing == 0) revert InvalidTickSpacing();
+        if (params.floorPrice == 0 || params.floorPrice % params.tickSpacing != 0) revert FloorNotOnTick();
+        if (params.startBlock < block.number) revert StartBlockInPast();
+        if (params.endBlock <= params.startBlock) revert InvalidEndBlock();
+        if (params.claimBlock < params.endBlock) revert InvalidClaimBlock();
+
+        bytes memory steps = params.auctionStepsData;
+        if (steps.length == 0 || steps.length % STEP_BYTES != 0) revert InvalidStepsData();
+        uint256 totalMps;
+        uint256 totalBlocks;
+        for (uint256 offset; offset < steps.length; offset += STEP_BYTES) {
+            uint256 word;
+            assembly ("memory-safe") {
+                word := mload(add(add(steps, 0x20), offset))
+            }
+            uint256 mps = word >> 232;
+            uint256 blocks = (word >> 192) & type(uint40).max;
+            totalMps += mps * blocks;
+            totalBlocks += blocks;
+        }
+        if (totalMps != MPS_TOTAL) revert InvalidStepsData();
+        if (params.startBlock + totalBlocks != params.endBlock) revert InvalidStepsData();
+    }
+}
+
+/// @notice Mock ERC-8004 reputation registry recording every `giveFeedback` call, with a test hook
+/// that makes it revert (standing in for a rejected feedback, e.g. from the agent's own owner).
+contract MockReputation {
+    struct Feedback {
+        address client;
+        uint256 agentId;
+        int128 value;
+        uint8 valueDecimals;
+        string tag1;
+        string tag2;
+        string endpoint;
+        string feedbackURI;
+        bytes32 feedbackHash;
+    }
+
+    bool public reverts;
+    Feedback[] internal _feedback;
+
+    error FeedbackRejected();
+
+    function setReverts(bool reverts_) external {
+        reverts = reverts_;
+    }
+
+    function giveFeedback(
+        uint256 agentId,
+        int128 value,
+        uint8 valueDecimals,
+        string calldata tag1,
+        string calldata tag2,
+        string calldata endpoint,
+        string calldata feedbackURI,
+        bytes32 feedbackHash
+    ) external {
+        if (reverts) revert FeedbackRejected();
+        _feedback.push(
+            Feedback({
+                client: msg.sender,
+                agentId: agentId,
+                value: value,
+                valueDecimals: valueDecimals,
+                tag1: tag1,
+                tag2: tag2,
+                endpoint: endpoint,
+                feedbackURI: feedbackURI,
+                feedbackHash: feedbackHash
+            })
+        );
+    }
+
+    function feedbackCount() external view returns (uint256) {
+        return _feedback.length;
+    }
+
+    function feedbackAt(uint256 index) external view returns (Feedback memory) {
+        return _feedback[index];
+    }
+}
+
+/// @notice Card stand-in with settable `IAgentCard` getters (so a hub can be shown rejecting a card
+/// that is wired to another hub or token, or has no payees or owner) and hub hooks that count
+/// calls or, via a test hook, revert.
+contract MockAgentCard {
+    address public hub;
+    address public usdc;
+    address public owner;
+    address[] internal _payees;
+    bool public hooksRevert;
+
+    uint256 public freezeCalls;
+    uint256 public unfreezeCalls;
+    uint256 public returnFundsCalls;
+
+    error HookFailed();
+
+    constructor(address hub_, address usdc_, address owner_, address[] memory payees_) {
+        hub = hub_;
+        usdc = usdc_;
+        owner = owner_;
+        _payees = payees_;
+    }
+
+    function setHooksRevert(bool revert_) external {
+        hooksRevert = revert_;
+    }
+
+    function payees() external view returns (address[] memory) {
+        return _payees;
+    }
+
+    function freeze() external {
+        if (hooksRevert) revert HookFailed();
+        freezeCalls++;
+    }
+
+    function unfreeze() external {
+        if (hooksRevert) revert HookFailed();
+        unfreezeCalls++;
+    }
+
+    function returnFunds(address) external {
+        if (hooksRevert) revert HookFailed();
+        returnFundsCalls++;
     }
 }

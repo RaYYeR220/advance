@@ -2,8 +2,8 @@
 pragma solidity 0.8.30;
 
 /// @notice Shared types for the Advance protocol.
-/// @dev `Loan`/`HubConfig` structs and the shared events/errors are added by the tasks that
-/// define AdvanceHub, RevenueEscrow, RevenueNote and CreditLine, once their fields are settled.
+/// @dev The loan record and hub configuration structs are defined in AdvanceHub; events and errors
+/// are declared by the contract that emits or throws them.
 interface IAdvance {
     /// @notice Lifecycle of a single loan.
     /// @dev None -> Auction (openLoan) -> Active (settleAuction graduated) | Failed (settleAuction
