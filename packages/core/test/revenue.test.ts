@@ -99,6 +99,7 @@ function fakeReader(overrides: FakeReaderOverrides = {}): ChainReader {
     getCreatorRevenueWindow: async () => window,
     getSwaps: notImplemented("getSwaps"),
     getEthUsdPrice: async () => ethUsdPrice,
+    getPoolStatus: notImplemented("getPoolStatus"),
   };
 }
 

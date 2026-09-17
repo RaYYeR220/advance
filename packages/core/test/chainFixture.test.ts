@@ -58,6 +58,12 @@ function makeFakeLiveOps(): ChainOps {
     getFeedDecimals: notImplemented(
       "getFeedDecimals",
     ) as ChainOps["getFeedDecimals"],
+    getPoolStatusRaw: notImplemented(
+      "getPoolStatusRaw",
+    ) as ChainOps["getPoolStatusRaw"],
+    getDopplerHookFlags: notImplemented(
+      "getDopplerHookFlags",
+    ) as ChainOps["getDopplerHookFlags"],
   };
 }
 

@@ -53,6 +53,15 @@
     "swapLogs": {},
     "transactions": {},
     "roundData": {},
-    "decimals": {}
+    "decimals": {},
+    "poolStatus": {
+      "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544:0xD698419f135E5f737366c56290140845B6Ed4Ba3": [
+        2,
+        "0x9982538F41f2ae29ddb9d3D9307010052984FDbB"
+      ]
+    },
+    "dopplerHookFlags": {
+      "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544:0x9982538F41f2ae29ddb9d3D9307010052984FDbB": "3"
+    }
   }
 }

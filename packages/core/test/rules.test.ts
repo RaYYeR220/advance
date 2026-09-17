@@ -80,6 +80,16 @@ describe("applyRules (synthetic)", () => {
     expect(reasons).toEqual(["not_weth_pool"]);
   });
 
+  it("pool not Locked (or its hook allows graduation) -> pool_not_locked", async () => {
+    const reasons = await applyRules(baseCtx({ poolLocked: false }), undefined, undefined);
+    expect(reasons).toEqual(["pool_not_locked"]);
+  });
+
+  it("poolLocked omitted defaults to eligible (not pool_not_locked)", async () => {
+    const reasons = await applyRules(baseCtx(), rev(), quality());
+    expect(reasons).not.toContain("pool_not_locked");
+  });
+
   it("rev unexpectedly missing despite a found WETH pool -> data_unavailable (fails closed)", async () => {
     const reasons = await applyRules(baseCtx(), undefined, undefined);
     expect(reasons).toEqual(["data_unavailable"]);

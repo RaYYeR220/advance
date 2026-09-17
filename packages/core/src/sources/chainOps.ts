@@ -104,6 +104,13 @@ export interface ChainOps {
   /** `eth_call decimals()` on a Chainlink aggregator, so the decimals guard in
    * `computeRevenue` checks a real on-chain read rather than an assumed constant. */
   getFeedDecimals(feed: Address, block: bigint): Promise<number>;
+  /** `DopplerHookInitializer.getState(asset)` -> `[status, dopplerHook]` (the two fields
+   * pool-eligibility needs; see `feesManagerAbi`'s `getState` entry for the full decode
+   * shape). Not block-pinned — like `getShares`/`getPoolKeyRaw`, this is a "what's the
+   * pool's status right now" read, not part of a historical revenue window. */
+  getPoolStatusRaw(feesManager: Address, asset: Address): Promise<[number, Address]>;
+  /** `DopplerHookInitializer.isDopplerHookEnabled(dopplerHook)` -> raw flags bitmask. */
+  getDopplerHookFlags(feesManager: Address, dopplerHook: Address): Promise<bigint>;
 }
 
 /** Live `ChainOps` backed by an archive-capable JSON-RPC endpoint. */
@@ -233,6 +240,25 @@ export function createLiveChainOps(rpcUrl: string): ChainOps {
         abi: chainlinkAggregatorAbi,
         functionName: "decimals",
         blockNumber: block,
+      });
+    },
+
+    async getPoolStatusRaw(feesManager, asset) {
+      const [, , dopplerHook, , status] = await client.readContract({
+        address: feesManager,
+        abi: feesManagerAbi,
+        functionName: "getState",
+        args: [asset],
+      });
+      return [status, dopplerHook];
+    },
+
+    async getDopplerHookFlags(feesManager, dopplerHook) {
+      return client.readContract({
+        address: feesManager,
+        abi: feesManagerAbi,
+        functionName: "isDopplerHookEnabled",
+        args: [dopplerHook],
       });
     },
   };

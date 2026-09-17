@@ -54,6 +54,10 @@ export interface EvidenceBundle {
     rawResponseText: string | undefined;
   };
   finalTerms: ComputedTerms;
+  /** Present only for a `data_unavailable` decision: the thrown error's message, with any
+   * `http(s)://` URL redacted (an RPC URL must never end up here) — never the raw error
+   * object, and never an API key. */
+  error?: string;
 }
 
 export interface BuildEvidenceParams {
@@ -69,6 +73,7 @@ export interface BuildEvidenceParams {
   rulesFired: DenyReason[];
   llm?: { requestMessages: LlmMessage[]; rawResponseText: string | undefined };
   finalTerms: ComputedTerms;
+  error?: string;
 }
 
 /** Assembles an `EvidenceBundle` from already-computed pieces. Pure — makes no chain or
@@ -100,6 +105,7 @@ export function buildEvidence(params: BuildEvidenceParams): EvidenceBundle {
     rulesFired: params.rulesFired,
     llm: params.llm,
     finalTerms: params.finalTerms,
+    error: params.error,
   };
 }
 

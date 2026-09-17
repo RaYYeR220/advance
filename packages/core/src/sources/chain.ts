@@ -11,10 +11,15 @@ export type {
   CreatorRevenueWindow,
   EthUsdPrice,
   TokenCreatedAt,
+  PoolStatusInfo,
 } from "./chainLogic.js";
-export { BlockAtBeforeGenesisError } from "./chainLogic.js";
+export {
+  BlockAtBeforeGenesisError,
+  isPoolEligibleForEscrow,
+  POOL_STATUS_LOCKED,
+} from "./chainLogic.js";
 export type { ChainFixture, RawSwapLogJson } from "./chainFixture.js";
-export { FixtureMissError } from "./chainFixture.js";
+export { FixtureMissError, createFixtureChainOps } from "./chainFixture.js";
 export {
   createLiveChainOps,
   isPreLockWrongPoolStatus,

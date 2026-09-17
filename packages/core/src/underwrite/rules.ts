@@ -11,6 +11,7 @@ const MIN_PRINCIPAL_USDC_WEI = 1_000_000n; // $1
 export type DenyReason =
   | "not_bankr_doppler"
   | "not_weth_pool"
+  | "pool_not_locked"
   | "creator_has_no_shares"
   | "already_escrowed"
   | "too_young"
@@ -29,6 +30,15 @@ export interface RulesContext {
   /** WETH is one of the pool's two currencies (false for BNKR-paired pools, e.g. the
    * `deployer` fixture). */
   isWethPool: boolean;
+  /**
+   * The pool's on-chain status is Locked and its Doppler hook (if any) isn't enabled for
+   * the `onGraduation` callback (see `ChainReader.getPoolStatus` /
+   * `isPoolEligibleForEscrow`). Graduation permanently disables fee collection for the
+   * escrow, so this is checked before it happens, not just after. Optional and defaults to
+   * `true` (assume eligible) so callers that don't check pool status aren't forced to opt
+   * in — the engine always sets it explicitly.
+   */
+  poolLocked?: boolean;
   /** A data source (chain/API) read failed upstream — fails closed, short-circuits every
    * other check. */
   dataError?: boolean;
@@ -66,6 +76,7 @@ export async function applyRules(
   if (ctx.dataError) return ["data_unavailable"];
   if (!ctx.poolFound) return ["not_bankr_doppler"];
   if (!ctx.isWethPool) return ["not_weth_pool"];
+  if (ctx.poolLocked === false) return ["pool_not_locked"];
   if (!rev) return ["data_unavailable"];
   if (rev.dailyRevenueWei.length !== 7) return ["data_unavailable"];
   if (!quality) return ["data_unavailable"];

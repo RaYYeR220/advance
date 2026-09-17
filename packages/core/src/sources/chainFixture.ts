@@ -49,6 +49,10 @@ export interface ChainFixture {
     roundData: Record<string, [string, string, string, string, string]>;
     /** `${feed}:${block}` -> the feed's `decimals()` (small uint8, plain number). */
     decimals: Record<string, number>;
+    /** `${feesManager}:${asset}` -> `[status, dopplerHook]` from `getState(asset)`. */
+    poolStatus: Record<string, [number, Address]>;
+    /** `${feesManager}:${dopplerHook}` -> `isDopplerHookEnabled` flags (decimal string). */
+    dopplerHookFlags: Record<string, string>;
   };
 }
 
@@ -74,6 +78,8 @@ function emptyCalls(): ChainFixture["calls"] {
     transactions: {},
     roundData: {},
     decimals: {},
+    poolStatus: {},
+    dopplerHookFlags: {},
   };
 }
 
@@ -210,6 +216,20 @@ export function createFixtureChainOps(fixture: ChainFixture): ChainOps {
       if (entry === undefined) throw new FixtureMissError("getFeedDecimals", key);
       return entry;
     },
+
+    async getPoolStatusRaw(feesManager, asset) {
+      const key = `${feesManager}:${asset}`;
+      const entry = calls.poolStatus[key];
+      if (!entry) throw new FixtureMissError("getPoolStatusRaw", key);
+      return entry;
+    },
+
+    async getDopplerHookFlags(feesManager, dopplerHook) {
+      const key = `${feesManager}:${dopplerHook}`;
+      const entry = calls.dopplerHookFlags[key];
+      if (entry === undefined) throw new FixtureMissError("getDopplerHookFlags", key);
+      return BigInt(entry);
+    },
   };
 }
 
@@ -329,6 +349,18 @@ export function createRecordingChainOps(
     async getFeedDecimals(feed, block) {
       const result = await live.getFeedDecimals(feed, block);
       calls.decimals[`${feed}:${block}`] = result;
+      return result;
+    },
+
+    async getPoolStatusRaw(feesManager, asset) {
+      const result = await live.getPoolStatusRaw(feesManager, asset);
+      calls.poolStatus[`${feesManager}:${asset}`] = result;
+      return result;
+    },
+
+    async getDopplerHookFlags(feesManager, dopplerHook) {
+      const result = await live.getDopplerHookFlags(feesManager, dopplerHook);
+      calls.dopplerHookFlags[`${feesManager}:${dopplerHook}`] = result.toString();
       return result;
     },
   };

@@ -68,6 +68,35 @@ export interface TokenCreatedAt {
   timestamp: number;
 }
 
+/** `DopplerHookInitializer`'s `PoolStatus` enum value for a Locked pool. */
+export const POOL_STATUS_LOCKED = 2;
+
+/** `BaseDopplerHook`'s `ON_GRADUATION_FLAG` bit (`1 << 2`) in `isDopplerHookEnabled`'s
+ * flags bitmask. */
+const HOOK_ON_GRADUATION_FLAG = 4n;
+
+const ZERO_ADDRESS: Address = "0x0000000000000000000000000000000000000000";
+
+export interface PoolStatusInfo {
+  /** Raw `PoolStatus` enum value (`POOL_STATUS_LOCKED` = 2 is the only eligible one). */
+  status: number;
+  /** The pool's associated Doppler hook, or the zero address if none is set. */
+  dopplerHook: Address;
+  /**
+   * True if `dopplerHook` is registered for the `onGraduation` callback — the pool can
+   * later graduate/migrate even while currently Locked, which permanently disables fee
+   * collection for the escrow. A pool with this set is treated as ineligible the same as
+   * a pool that isn't Locked at all.
+   */
+  hookAllowsGraduation: boolean;
+}
+
+/** True iff a pool is safe collateral for the escrow: currently Locked, and its hook (if
+ * any) isn't registered to trigger graduation later. */
+export function isPoolEligibleForEscrow(info: PoolStatusInfo): boolean {
+  return info.status === POOL_STATUS_LOCKED && !info.hookAllowsGraduation;
+}
+
 /** `blockAt(timestamp)` was asked for a timestamp before the chain's first block. */
 export class BlockAtBeforeGenesisError extends Error {
   constructor(timestamp: bigint, genesisTimestamp: bigint) {
@@ -122,6 +151,9 @@ export interface ChainReader {
     cap?: number;
   }): Promise<SwapRecord[]>;
   getEthUsdPrice(feed: Address, block?: bigint): Promise<EthUsdPrice>;
+  /** Current on-chain `PoolStatus` + graduation-hook eligibility for `asset` (the token
+   * address, not the poolId — `DopplerHookInitializer.getState` is keyed by asset). */
+  getPoolStatus(feesManager: Address, asset: Address): Promise<PoolStatusInfo>;
 }
 
 const SWAP_LOG_CHUNK_BLOCKS = 10_000n;
@@ -375,6 +407,19 @@ export function buildChainReader(ops: ChainOps): ChainReader {
     };
   }
 
+  async function getPoolStatus(
+    feesManager: Address,
+    asset: Address,
+  ): Promise<PoolStatusInfo> {
+    const [status, dopplerHook] = await ops.getPoolStatusRaw(feesManager, asset);
+    let hookAllowsGraduation = false;
+    if (dopplerHook.toLowerCase() !== ZERO_ADDRESS) {
+      const flags = await ops.getDopplerHookFlags(feesManager, dopplerHook);
+      hookAllowsGraduation = (flags & HOOK_ON_GRADUATION_FLAG) !== 0n;
+    }
+    return { status, dopplerHook, hookAllowsGraduation };
+  }
+
   async function hasCodeAt(token: Address, block: bigint): Promise<boolean> {
     const code = await ops.getCode(token, block);
     return code !== undefined && code.toLowerCase() !== "0x";
@@ -423,5 +468,6 @@ export function buildChainReader(ops: ChainOps): ChainReader {
     getCreatorRevenueWindow,
     getSwaps,
     getEthUsdPrice,
+    getPoolStatus,
   };
 }

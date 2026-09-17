@@ -1,7 +1,11 @@
 import type { Address, Hex } from "viem";
 import { describe, expect, it } from "vitest";
 import type { ChainOps, RawSwapLog } from "../src/sources/chainOps.js";
-import { buildChainReader, BlockAtBeforeGenesisError } from "../src/sources/chainLogic.js";
+import {
+  buildChainReader,
+  isPoolEligibleForEscrow,
+  BlockAtBeforeGenesisError,
+} from "../src/sources/chainLogic.js";
 
 const POOL_MANAGER: Address = "0x498581fF718922c3f8e6A244956aF099B2652b2b";
 const POOL_ID: Hex =
@@ -45,6 +49,10 @@ function fakeOps(overrides: Partial<ChainOps>): ChainOps {
       notImplemented("getLatestRoundData")) as ChainOps["getLatestRoundData"],
     getFeedDecimals: (overrides.getFeedDecimals ??
       notImplemented("getFeedDecimals")) as ChainOps["getFeedDecimals"],
+    getPoolStatusRaw: (overrides.getPoolStatusRaw ??
+      notImplemented("getPoolStatusRaw")) as ChainOps["getPoolStatusRaw"],
+    getDopplerHookFlags: (overrides.getDopplerHookFlags ??
+      notImplemented("getDopplerHookFlags")) as ChainOps["getDopplerHookFlags"],
   };
 }
 
@@ -175,6 +183,73 @@ describe("blockAt: genesis boundary", () => {
   it("resolves normally for a timestamp well after genesis", async () => {
     const reader = buildChainReader(makeOps());
     await expect(reader.blockAt(timestampOf(50n))).resolves.toBe(50n);
+  });
+});
+
+describe("getPoolStatus / isPoolEligibleForEscrow", () => {
+  const FEES_MANAGER: Address = "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544";
+  const ASSET: Address = "0x1111111111111111111111111111111111111111";
+  const HOOK: Address = "0x2222222222222222222222222222222222222222";
+  const ZERO_ADDRESS: Address = "0x0000000000000000000000000000000000000000";
+
+  it("Locked status, no hook -> eligible", async () => {
+    const ops = fakeOps({
+      async getPoolStatusRaw() {
+        return [2, ZERO_ADDRESS];
+      },
+      getDopplerHookFlags: notImplemented(
+        "getDopplerHookFlags",
+      ) as ChainOps["getDopplerHookFlags"], // never called: no hook set
+    });
+    const reader = buildChainReader(ops);
+    const info = await reader.getPoolStatus(FEES_MANAGER, ASSET);
+    expect(info.status).toBe(2);
+    expect(info.hookAllowsGraduation).toBe(false);
+    expect(isPoolEligibleForEscrow(info)).toBe(true);
+  });
+
+  it("Locked status, hook set but ON_GRADUATION_FLAG not set -> eligible", async () => {
+    const ops = fakeOps({
+      async getPoolStatusRaw() {
+        return [2, HOOK];
+      },
+      async getDopplerHookFlags() {
+        return 3n; // ON_INITIALIZATION_FLAG | ON_SWAP_FLAG, no graduation bit
+      },
+    });
+    const reader = buildChainReader(ops);
+    const info = await reader.getPoolStatus(FEES_MANAGER, ASSET);
+    expect(info.hookAllowsGraduation).toBe(false);
+    expect(isPoolEligibleForEscrow(info)).toBe(true);
+  });
+
+  it("Locked status, hook with ON_GRADUATION_FLAG set -> not eligible (pool_not_locked)", async () => {
+    const ops = fakeOps({
+      async getPoolStatusRaw() {
+        return [2, HOOK];
+      },
+      async getDopplerHookFlags() {
+        return 7n; // includes ON_GRADUATION_FLAG (1<<2)
+      },
+    });
+    const reader = buildChainReader(ops);
+    const info = await reader.getPoolStatus(FEES_MANAGER, ASSET);
+    expect(info.hookAllowsGraduation).toBe(true);
+    expect(isPoolEligibleForEscrow(info)).toBe(false);
+  });
+
+  it("non-Locked status (e.g. Graduated) -> not eligible even with no hook", async () => {
+    const ops = fakeOps({
+      async getPoolStatusRaw() {
+        return [3, ZERO_ADDRESS]; // Graduated
+      },
+      getDopplerHookFlags: notImplemented(
+        "getDopplerHookFlags",
+      ) as ChainOps["getDopplerHookFlags"],
+    });
+    const reader = buildChainReader(ops);
+    const info = await reader.getPoolStatus(FEES_MANAGER, ASSET);
+    expect(isPoolEligibleForEscrow(info)).toBe(false);
   });
 });
 

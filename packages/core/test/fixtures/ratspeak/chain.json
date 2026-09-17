@@ -5373,6 +5373,15 @@
     },
     "decimals": {
       "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70:51411559": 8
+    },
+    "poolStatus": {
+      "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544:0xf1e9Baa65d418A9025e1851DD2D37f1AD208bba3": [
+        2,
+        "0xBF4195ab0B03e1eB3345dd1e83BeD7650b1ed123"
+      ]
+    },
+    "dopplerHookFlags": {
+      "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544:0xBF4195ab0B03e1eB3345dd1e83BeD7650b1ed123": "3"
     }
   }
 }
