@@ -1,0 +1,62 @@
+{
+  "chainId": 8453,
+  "network": "mainnet",
+  "ageSeconds": "5184000",
+  "dailyFeesWei": [
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000"
+  ],
+  "creatorSharesWad": "0",
+  "ethUsdAnswerE8": "300000000000",
+  "ethUsdStalenessSeconds": "60",
+  "swaps": {
+    "swapCount": 60,
+    "washCount": 3,
+    "whaleCounts": [
+      4,
+      4,
+      4,
+      3
+    ]
+  },
+  "isWethPool": true,
+  "poolLocked": true,
+  "hookGraduationFlag": false,
+  "tokenName": "Negative Control",
+  "tokenSymbol": "NEGCTL",
+  "llm": {
+    "kind": "auto"
+  },
+  "discoveryMode": "both",
+  "id": "negative-control",
+  "category": "negative_control",
+  "description": "Identical to healthy-1 except creatorSharesWad=0 — every revenue window scales to zero, so creator_has_no_shares fires alongside the revenue cascade (no_recent_revenue, below_minimum)."
+}

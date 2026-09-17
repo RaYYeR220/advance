@@ -1,0 +1,62 @@
+{
+  "chainId": 8453,
+  "network": "mainnet",
+  "ageSeconds": "5184000",
+  "dailyFeesWei": [
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000"
+  ],
+  "creatorSharesWad": "950000000000000000",
+  "ethUsdAnswerE8": "300000000000",
+  "ethUsdStalenessSeconds": "60",
+  "swaps": {
+    "swapCount": 100,
+    "washCount": 0,
+    "whaleCounts": [
+      19,
+      19,
+      19,
+      18
+    ]
+  },
+  "isWethPool": true,
+  "poolLocked": true,
+  "hookGraduationFlag": false,
+  "tokenName": "Concentrated #2",
+  "tokenSymbol": "CON2",
+  "llm": {
+    "kind": "auto"
+  },
+  "discoveryMode": "both",
+  "id": "concentrated-2",
+  "category": "concentrated_flow",
+  "description": "75% of swaps split across 4 \"whale\" addresses (not the creator) — isolates the concentration signal from wash."
+}

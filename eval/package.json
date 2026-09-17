@@ -1,0 +1,25 @@
+{
+  "name": "@advance/eval",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prestart": "pnpm --filter @advance/core build",
+    "start": "tsc -p tsconfig.json && node dist/run.js",
+    "prederive-key": "pnpm --filter @advance/core build",
+    "derive-key": "tsc -p tsconfig.json && node dist/src/deriveKey.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@advance/core": "workspace:*",
+    "viem": "^2.56.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

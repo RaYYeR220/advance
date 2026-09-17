@@ -1,0 +1,62 @@
+{
+  "chainId": 84532,
+  "network": "demo",
+  "ageSeconds": "5184000",
+  "dailyFeesWei": [
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000",
+    "1000000000000000"
+  ],
+  "creatorSharesWad": "950000000000000000",
+  "ethUsdAnswerE8": "300000000000",
+  "ethUsdStalenessSeconds": "60",
+  "swaps": {
+    "swapCount": 60,
+    "washCount": 3,
+    "whaleCounts": [
+      4,
+      4,
+      4,
+      3
+    ]
+  },
+  "isWethPool": true,
+  "poolLocked": true,
+  "hookGraduationFlag": false,
+  "tokenName": "Sepolia Approve",
+  "tokenSymbol": "SEPA",
+  "llm": {
+    "kind": "auto"
+  },
+  "discoveryMode": "airlockOnly",
+  "id": "sepolia-approve",
+  "category": "sepolia",
+  "description": "Base Sepolia, Airlock-only discovery, healthy-shaped revenue — approve under the $10,000 demo ceiling."
+}

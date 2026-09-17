@@ -1,0 +1,62 @@
+{
+  "chainId": 8453,
+  "network": "mainnet",
+  "ageSeconds": "5184000",
+  "dailyFeesWei": [
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000",
+    "5000000000000000"
+  ],
+  "creatorSharesWad": "950000000000000000",
+  "ethUsdAnswerE8": "300000000000",
+  "ethUsdStalenessSeconds": "60",
+  "swaps": {
+    "swapCount": 60,
+    "washCount": 3,
+    "whaleCounts": [
+      4,
+      4,
+      4,
+      3
+    ]
+  },
+  "isWethPool": true,
+  "poolLocked": true,
+  "hookGraduationFlag": true,
+  "tokenName": "Graduation Flag",
+  "tokenSymbol": "GRAD",
+  "llm": {
+    "kind": "auto"
+  },
+  "discoveryMode": "both",
+  "id": "graduation-flag",
+  "category": "pool_not_locked",
+  "description": "Pool status is Locked, but its Doppler hook has ON_GRADUATION_FLAG set — deny pool_not_locked before any revenue read."
+}

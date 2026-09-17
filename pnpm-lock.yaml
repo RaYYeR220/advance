@@ -24,6 +24,25 @@ importers:
         specifier: ^3.2.0
         version: 3.2.7(@types/node@24.13.5)
 
+  eval:
+    dependencies:
+      '@advance/core':
+        specifier: workspace:*
+        version: link:../packages/core
+      viem:
+        specifier: ^2.56.6
+        version: 2.56.6(typescript@5.9.3)(zod@4.6.5)
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.5
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/node@24.13.5)
+
   packages/core:
     dependencies:
       canonicalize:
