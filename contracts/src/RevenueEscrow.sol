@@ -154,9 +154,6 @@ contract RevenueEscrow is ReentrancyGuardTransient {
     error ZeroAddress();
     /// @notice Thrown when `activate` is called before `bind`.
     error NotBound();
-    /// @notice Thrown when `closeIfRepaid` is called while the note still has cap remaining.
-    /// @param remaining The note's remaining USDC cap.
-    error NotRepaid(uint256 remaining);
     /// @notice Thrown by `bind` when the pool does not pair exactly one ETH leg (WETH or native)
     /// with an agent token that is neither ETH nor USDC.
     error UnsupportedPool();
@@ -288,15 +285,17 @@ contract RevenueEscrow is ReentrancyGuardTransient {
         if (note_.remainingCap() == 0) _close(key);
     }
 
-    /// @notice Closes an Active escrow whose note is already repaid to its cap without
-    /// harvesting (e.g. after the credit line filled the cap, or while the oracle is
-    /// unavailable). Callable by anyone.
-    function closeIfRepaid() external nonReentrant {
-        if (phase != Phase.Active) revert WrongPhase();
-        uint256 remaining = note.remainingCap();
-        if (remaining != 0) revert NotRepaid(remaining);
+    /// @notice Closes an Active escrow whose note is already repaid to its cap, without
+    /// harvesting (e.g. after the credit line's freeze filled the cap, or while the oracle is
+    /// unavailable): hands the shares back, forwards held balances and notifies the hub. Callable
+    /// by anyone. A no-op returning false when the escrow is not Active or the note still has cap
+    /// remaining, so the hub can call it unconditionally (e.g. at the end of `markDefault`).
+    /// @return closed Whether this call closed the escrow.
+    function closeIfRepaid() external nonReentrant returns (bool closed) {
+        if (phase != Phase.Active || note.remainingCap() != 0) return false;
 
         _close(feesManager.getPoolKey(poolId));
+        return true;
     }
 
     /// @notice Returns the beneficiary shares and every held balance to the treasury for a loan

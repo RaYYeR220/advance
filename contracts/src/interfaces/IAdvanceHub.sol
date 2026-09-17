@@ -14,6 +14,16 @@ interface IAdvanceHub {
     /// MUST NOT revert: a revert here unwinds the whole call, including the final distribution
     /// that filled the cap, and every later harvest that reaches the cap reverts the same way, so
     /// the loan could never close and the note's last repayment would never land.
+    ///
+    /// It can also arrive re-entrantly from the hub's own `markDefault`: `markDefault` freezes the
+    /// credit line (whose distribution to the note can fill the cap) and then calls
+    /// `RevenueEscrow.closeIfRepaid`, which closes the escrow and calls back here before
+    /// `markDefault` returns. In that case, and for any late repayment of a defaulted loan, the
+    /// loan is already `Defaulted` and its credit line already `Frozen`. The implementation MUST
+    /// accept a `Defaulted` loan (Defaulted -> Repaid), MUST NOT call `CreditLine.close()` while the
+    /// credit line is `Frozen` (it only runs from `Active` and would revert `InvalidState`, unwinding
+    /// `markDefault` or the harvest), and MUST NOT guard `onRepaid` with a reentrancy lock that
+    /// `markDefault` also holds.
     /// @param loanId The id of the loan that has been repaid.
     function onRepaid(uint256 loanId) external;
 

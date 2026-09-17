@@ -1004,7 +1004,7 @@ contract RevenueEscrowTest is Test {
         vm.expectEmit(address(escrow));
         emit RevenueEscrow.BeneficiaryReturned(treasury);
         vm.prank(keeper);
-        escrow.closeIfRepaid();
+        assertTrue(escrow.closeIfRepaid());
 
         _assertPhase(RevenueEscrow.Phase.Closed);
         assertEq(fm.getShares(POOL_ID, address(escrow)), 0);
@@ -1033,7 +1033,7 @@ contract RevenueEscrowTest is Test {
         note.distribute(5e6);
         vm.stopPrank();
 
-        escrow.closeIfRepaid();
+        assertTrue(escrow.closeIfRepaid());
 
         assertTrue(evil.attempted());
         assertEq(
@@ -1045,28 +1045,45 @@ contract RevenueEscrowTest is Test {
         assertEq(hub.repaidCallCount(), 1);
     }
 
-    function test_closeIfRepaid_revertsUnlessActive() public {
-        vm.expectRevert(RevenueEscrow.WrongPhase.selector);
-        escrow.closeIfRepaid();
+    /// @dev The hub calls `closeIfRepaid` unconditionally at the end of `markDefault`, so it must
+    /// be a harmless no-op whenever there is nothing to close.
+    function test_closeIfRepaid_notActive_isNoOp() public {
+        assertFalse(escrow.closeIfRepaid(), "unbound");
 
         _bind();
-        vm.expectRevert(RevenueEscrow.WrongPhase.selector);
-        escrow.closeIfRepaid();
+        assertFalse(escrow.closeIfRepaid(), "bound, pending");
+        _assertPhase(RevenueEscrow.Phase.Pending);
+
+        creditLine.setState(CreditLine.State.Failed);
+        vm.prank(address(hub));
+        escrow.release();
+        assertFalse(escrow.closeIfRepaid(), "released");
+
+        _assertPhase(RevenueEscrow.Phase.Closed);
+        assertEq(hub.repaidCallCount(), 0);
     }
 
-    function test_closeIfRepaid_revertsWhileCapRemains() public {
+    function test_closeIfRepaid_capRemaining_isNoOp() public {
         _bindAndActivate();
-        vm.expectRevert(abi.encodeWithSelector(RevenueEscrow.NotRepaid.selector, 5e6));
-        escrow.closeIfRepaid();
+        _accrue(POOL_WETH, POOL_TOKEN);
+        vm.prank(keeper);
+        fm.collectFees(POOL_ID);
+
+        assertFalse(escrow.closeIfRepaid());
+
+        _assertPhase(RevenueEscrow.Phase.Active);
+        assertEq(fm.getShares(POOL_ID, address(escrow)), ESCROW_SHARES);
+        (uint256 pending0, uint256 pending1) = fm.pendingInManager(POOL_ID, address(escrow));
+        assertGt(pending0 + pending1, 0, "fees still owed to the escrow, not handed over");
+        assertEq(hub.repaidCallCount(), 0);
     }
 
-    function test_closeIfRepaid_onlyOnce() public {
+    function test_closeIfRepaid_afterClose_isNoOp() public {
         _bindAndActivate();
         _accrue(POOL_WETH, 0);
         escrow.harvest(0);
 
-        vm.expectRevert(RevenueEscrow.WrongPhase.selector);
-        escrow.closeIfRepaid();
+        assertFalse(escrow.closeIfRepaid());
         assertEq(hub.repaidCallCount(), 1);
     }
 
