@@ -66,6 +66,11 @@ async function main() {
   const poolKey = await reader.getPoolKey(feesManager, poolId);
   await reader.getShares(feesManager, poolId, creator);
 
+  const createdAt = await reader.tokenCreatedAt(token);
+  console.log(
+    `  tokenCreatedAt: block=${createdAt.block} timestamp=${createdAt.timestamp} (${new Date(createdAt.timestamp * 1000).toISOString()})`,
+  );
+
   const isWethPaired =
     poolKey.currency0.toLowerCase() === BASE_WETH.toLowerCase() ||
     poolKey.currency1.toLowerCase() === BASE_WETH.toLowerCase();
@@ -90,8 +95,7 @@ async function main() {
     }
 
     const swapFromTimestamp = latest.timestamp - 7n * DAY_SECONDS;
-    const swapFromBlock =
-      swapFromTimestamp <= 0n ? 1n : await reader.blockAt(swapFromTimestamp);
+    const swapFromBlock = await reader.blockAt(swapFromTimestamp);
     const swaps = await reader.getSwaps({
       poolManager: BASE_V4_POOL_MANAGER,
       poolId,

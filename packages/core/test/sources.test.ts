@@ -178,7 +178,11 @@ describe("ChainReader (fixture-backed, Ratspeak)", () => {
     expect(revenueWeth).toBeLessThan(14.47 * 1.02);
   });
 
-  it("computes a small trailing 1d creator WETH revenue", async () => {
+  it("computes trailing 1d creator WETH revenue ≈ 0.01215 WETH (±25%)", async () => {
+    // Recorded value at fixture time (see task-2-report.md); ±25% keeps this stable
+    // across re-recordings (1d revenue is inherently noisy — a single active day can
+    // move it a lot) while still catching a formula regression the way the 30d test does.
+    const RECORDED_1D_WETH = 0.012147120945590388;
     const reader = createFixtureChainReader(ratspeakChain);
     const window = await reader.getCreatorRevenueWindow({
       feesManager: RATSPEAK_FEES_MANAGER,
@@ -188,8 +192,8 @@ describe("ChainReader (fixture-backed, Ratspeak)", () => {
       windowSeconds: 1n * DAY,
     });
     const revenueWeth = wethOf(window.creatorRevenueWeth);
-    expect(revenueWeth).toBeGreaterThan(0);
-    expect(revenueWeth).toBeLessThan(0.1);
+    expect(revenueWeth).toBeGreaterThan(RECORDED_1D_WETH * 0.75);
+    expect(revenueWeth).toBeLessThan(RECORDED_1D_WETH * 1.25);
   });
 
   it("7d revenue sits between the 1d and 30d figures", async () => {
@@ -250,6 +254,44 @@ describe("ChainReader (fixture-backed, Ratspeak)", () => {
     );
     expect(price.decimals).toBe(8);
     expect(price.answer).toBeGreaterThan(0n);
+  });
+
+  it("a swap-log query with an unrecorded cap misses instead of returning truncated data", async () => {
+    // The fixture only ever recorded cap=400 (what record-fixture.ts requested) for this
+    // block range. A different cap over the *same* range must not silently reuse that
+    // (possibly truncated) recording — it must throw FixtureMissError.
+    const reader = createFixtureChainReader(ratspeakChain);
+    const latest = await reader.getLatestBlock();
+    const fromBlock = await reader.blockAt(latest.timestamp - 7n * DAY);
+    await expect(
+      reader.getSwaps({
+        poolManager: BASE_V4_POOL_MANAGER,
+        poolId: RATSPEAK_POOL_ID,
+        fromBlock,
+        toBlock: latest.number,
+        cap: 1000,
+      }),
+    ).rejects.toThrow(FixtureMissError);
+  });
+
+  it("tokenCreatedAt matches the token's real on-chain deployment (Basescan/Blockscout cross-check, ±1 block)", async () => {
+    // Ground truth: Blockscout's recorded creation transaction for Ratspeak
+    // (0xf1e9Baa65d418A9025e1851DD2D37f1AD208bba3) — block 46172693,
+    // 2026-05-18T20:05:33Z = unix 1779134733. Recorded live via the same archive RPC.
+    const GROUND_TRUTH_BLOCK = 46172693n;
+    const GROUND_TRUTH_TIMESTAMP = 1779134733;
+    const reader = createFixtureChainReader(ratspeakChain);
+    const createdAt = await reader.tokenCreatedAt(RATSPEAK_TOKEN);
+    expect(createdAt.block).toBeGreaterThanOrEqual(GROUND_TRUTH_BLOCK - 1n);
+    expect(createdAt.block).toBeLessThanOrEqual(GROUND_TRUTH_BLOCK + 1n);
+    expect(createdAt.timestamp).toBe(GROUND_TRUTH_TIMESTAMP);
+  });
+
+  it("tokenCreatedAt is cached (a second call doesn't re-query the fixture)", async () => {
+    const reader = createFixtureChainReader(ratspeakChain);
+    const first = await reader.tokenCreatedAt(RATSPEAK_TOKEN);
+    const second = await reader.tokenCreatedAt(RATSPEAK_TOKEN);
+    expect(second).toEqual(first);
   });
 });
 
@@ -356,5 +398,19 @@ describe("ChainReader (fixture-backed, spider — very new pool)", () => {
     });
     expect(window.accruedFromWeth).toBe(0n);
     expect(window.accruedToWeth).toBe(0n);
+  });
+
+  it("tokenCreatedAt is very recent (well within 1 day of the recorded latest block)", async () => {
+    const entry = pickBankrToken(
+      spiderBankr,
+      spiderBankr.tokens[0]!.tokenAddress,
+    );
+    const reader = createFixtureChainReader(spiderChain);
+    const latest = await reader.getLatestBlock();
+    const createdAt = await reader.tokenCreatedAt(entry.tokenAddress);
+    expect(createdAt.block).toBeLessThanOrEqual(latest.number);
+    const ageSeconds = latest.timestamp - BigInt(createdAt.timestamp);
+    expect(ageSeconds).toBeGreaterThanOrEqual(0n);
+    expect(ageSeconds).toBeLessThan(DAY); // spider was locked ~1h before recording
   });
 });

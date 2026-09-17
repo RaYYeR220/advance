@@ -14,6 +14,29 @@ import { poolManagerSwapEventAbi } from "../abis/poolManager.js";
 export const ZERO_SHARE_ADDRESS: Address =
   "0x000000000000000000000000000000000000bEEF";
 
+/** `DopplerHookInitializer`'s `PoolStatus` enum (see `WrongPoolStatus`'s args). */
+const POOL_STATUS_UNINITIALIZED = 0;
+const POOL_STATUS_LOCKED = 2;
+
+/**
+ * `collectFees` reverts `WrongPoolStatus(expected, actual)` whenever the asset's status
+ * isn't `Locked`. That is only safe to read as "zero fees have ever accrued" when
+ * `actual` is genuinely `Uninitialized` (0) — i.e. a lookback block strictly before the
+ * pool was locked. Any other `actual` status (`Initialized`, `Graduated`, `Exited`, ...)
+ * reverting the same way is a real failure (e.g. a pool that later unwound) and must
+ * propagate so callers fail closed instead of silently reporting zero revenue.
+ */
+export function isPreLockWrongPoolStatus(
+  errorName: string | undefined,
+  args: readonly unknown[] | undefined,
+): boolean {
+  if (errorName !== "WrongPoolStatus") return false;
+  if (!args || args.length < 2) return false;
+  const expected = Number(args[0]);
+  const actual = Number(args[1]);
+  return expected === POOL_STATUS_LOCKED && actual === POOL_STATUS_UNINITIALIZED;
+}
+
 export interface RawSwapLog {
   sender: Address;
   amount0: bigint;
@@ -36,6 +59,8 @@ export interface RawSwapLog {
 export interface ChainOps {
   getBlockNumber(): Promise<bigint>;
   getBlockTimestamp(block: bigint): Promise<bigint>;
+  /** `eth_getCode` at `block`; `"0x"` means no contract deployed yet at that block. */
+  getCode(address: Address, block: bigint): Promise<Hex>;
   getPoolKeyRaw(
     feesManager: Address,
     poolId: Hex,
@@ -57,12 +82,19 @@ export interface ChainOps {
     poolId: Hex,
     block: bigint,
   ): Promise<[bigint, bigint]>;
-  /** One `eth_getLogs` call for the `[fromBlock, toBlock]` range (caller chunks). */
+  /**
+   * One `eth_getLogs` call for the `[fromBlock, toBlock]` range (caller chunks).
+   * `cap` doesn't affect what's fetched live (the full raw range is always read) — it's
+   * threaded through purely so fixture recording/replay can key and trim per the
+   * caller's actual `getSwaps({ cap })`, instead of silently reusing a differently
+   * capped (and therefore possibly truncated) recording for the same block range.
+   */
   getSwapLogs(
     poolManager: Address,
     poolId: Hex,
     fromBlock: bigint,
     toBlock: bigint,
+    cap: number,
   ): Promise<RawSwapLog[]>;
   getTransactionSender(hash: Hex): Promise<Address>;
   getLatestRoundData(
@@ -83,6 +115,11 @@ export function createLiveChainOps(rpcUrl: string): ChainOps {
     async getBlockTimestamp(block) {
       const b = await client.getBlock({ blockNumber: block });
       return b.timestamp;
+    },
+
+    async getCode(address, block) {
+      const code = await client.getCode({ address, blockNumber: block });
+      return code ?? "0x";
     },
 
     async getPoolKeyRaw(feesManager, poolId) {
@@ -136,7 +173,12 @@ export function createLiveChainOps(rpcUrl: string): ChainOps {
           const revertError = err.walk(
             (e) => e instanceof ContractFunctionRevertedError,
           ) as ContractFunctionRevertedError | undefined;
-          if (revertError?.data?.errorName === "WrongPoolStatus") {
+          if (
+            isPreLockWrongPoolStatus(
+              revertError?.data?.errorName,
+              revertError?.data?.args,
+            )
+          ) {
             return [0n, 0n];
           }
         }
@@ -144,7 +186,7 @@ export function createLiveChainOps(rpcUrl: string): ChainOps {
       }
     },
 
-    async getSwapLogs(poolManager, poolId, fromBlock, toBlock) {
+    async getSwapLogs(poolManager, poolId, fromBlock, toBlock, _cap) {
       const logs = await client.getLogs({
         address: poolManager,
         event: poolManagerSwapEventAbi[0],

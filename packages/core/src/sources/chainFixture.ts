@@ -26,6 +26,8 @@ export interface ChainFixture {
   calls: {
     /** blockNumber (decimal string) -> timestamp (decimal string) */
     blocks: Record<string, string>;
+    /** `${address}:${block}` -> `eth_getCode` result (`"0x"` = no contract yet) */
+    codes: Record<string, string>;
     /** `${feesManager}:${poolId}` -> [currency0, currency1, fee, tickSpacing, hooks] */
     poolKeys: Record<string, [Address, Address, number, number, Address]>;
     /** `${feesManager}:${poolId}:${beneficiary}` -> shares (decimal string) */
@@ -34,7 +36,12 @@ export interface ChainFixture {
     cumulatedFees: Record<string, string>;
     /** `${feesManager}:${poolId}:${block}` -> [fees0, fees1] (decimal strings) */
     uncollectedFees: Record<string, [string, string]>;
-    /** `${poolManager}:${poolId}:${fromBlock}-${toBlock}` -> raw swap logs in that chunk */
+    /**
+     * `${poolManager}:${poolId}:${fromBlock}-${toBlock}:cap=${cap}` -> raw swap logs in
+     * that chunk, recorded (and trimmed) for that exact `cap`. `cap` is part of the key
+     * so replaying the same block range with a different, unrecorded cap throws
+     * `FixtureMissError` instead of silently reusing a possibly-truncated recording.
+     */
     swapLogs: Record<string, RawSwapLogJson[]>;
     /** tx hash -> sender address */
     transactions: Record<string, Address>;
@@ -42,9 +49,6 @@ export interface ChainFixture {
     roundData: Record<string, [string, string, string, string, string]>;
   };
 }
-
-/** Per-chunk trim applied when recording swap logs (see `createRecordingChainOps`). */
-const RECORDING_SWAP_TRIM = 400;
 
 export class FixtureMissError extends Error {
   constructor(kind: string, key: string) {
@@ -59,6 +63,7 @@ export class FixtureMissError extends Error {
 function emptyCalls(): ChainFixture["calls"] {
   return {
     blocks: {},
+    codes: {},
     poolKeys: {},
     shares: {},
     cumulatedFees: {},
@@ -74,8 +79,9 @@ function swapLogKey(
   poolId: Hex,
   fromBlock: bigint,
   toBlock: bigint,
+  cap: number,
 ): string {
-  return `${poolManager}:${poolId}:${fromBlock}-${toBlock}`;
+  return `${poolManager}:${poolId}:${fromBlock}-${toBlock}:cap=${cap}`;
 }
 
 function toRawSwapLog(json: RawSwapLogJson): RawSwapLog {
@@ -134,6 +140,13 @@ export function createFixtureChainOps(fixture: ChainFixture): ChainOps {
       return BigInt(ts);
     },
 
+    async getCode(address, block) {
+      const key = `${address}:${block}`;
+      const code = calls.codes[key];
+      if (code === undefined) throw new FixtureMissError("getCode", key);
+      return code as Hex;
+    },
+
     async getPoolKeyRaw(feesManager, poolId) {
       const key = `${feesManager}:${poolId}`;
       const entry = calls.poolKeys[key];
@@ -162,8 +175,8 @@ export function createFixtureChainOps(fixture: ChainFixture): ChainOps {
       return [BigInt(entry[0]), BigInt(entry[1])];
     },
 
-    async getSwapLogs(poolManager, poolId, fromBlock, toBlock) {
-      const key = swapLogKey(poolManager, poolId, fromBlock, toBlock);
+    async getSwapLogs(poolManager, poolId, fromBlock, toBlock, cap) {
+      const key = swapLogKey(poolManager, poolId, fromBlock, toBlock, cap);
       const entry = calls.swapLogs[key];
       if (!entry) throw new FixtureMissError("getSwapLogs", key);
       return entry.map(toRawSwapLog);
@@ -212,6 +225,16 @@ export function createRecordingChainOps(
       return ts;
     },
 
+    async getCode(address, block) {
+      const code = await live.getCode(address, block);
+      // Every consumer of a *recorded* code fixture only ever asks "is this empty?"
+      // (see `hasCodeAt` in chainLogic.ts) — the real bytecode can be tens of KB per
+      // call and there's nothing to gain from persisting it verbatim. Store a 1-byte
+      // non-"0x" placeholder for "has code" and the real "0x" for "no code yet".
+      calls.codes[`${address}:${block}`] = code.toLowerCase() === "0x" ? "0x" : "0x01";
+      return code;
+    },
+
     async getPoolKeyRaw(feesManager, poolId) {
       const result = await live.getPoolKeyRaw(feesManager, poolId);
       calls.poolKeys[`${feesManager}:${poolId}`] = result;
@@ -246,19 +269,22 @@ export function createRecordingChainOps(
       return result;
     },
 
-    async getSwapLogs(poolManager, poolId, fromBlock, toBlock) {
+    async getSwapLogs(poolManager, poolId, fromBlock, toBlock, cap) {
       const result = await live.getSwapLogs(
         poolManager,
         poolId,
         fromBlock,
         toBlock,
+        cap,
       );
-      // The business logic only ever keeps the most-recent `cap` (default 400) swaps
-      // across the whole query range. Recording every raw log in every 10k-block chunk
-      // can blow fixtures up to hundreds of KB for busy pools; trimming each chunk to its
-      // own most-recent `RECORDING_SWAP_TRIM` entries before persisting is safe because an
-      // entry that doesn't even make the top of its own chunk can never make the global
-      // top-`cap` once merged with other (typically more recent) chunks.
+      // The business logic only ever keeps the most-recent `cap` swaps across the whole
+      // query range. Recording every raw log in every 10k-block chunk can blow fixtures
+      // up to hundreds of KB for busy pools; trimming each chunk to its own most-recent
+      // `cap` entries before persisting is safe because an entry that doesn't even make
+      // the top of its own chunk can never make the global top-`cap` once merged with
+      // other (typically more recent) chunks. Keying by `cap` (see `swapLogKey`) means a
+      // replay with a larger, unrecorded cap correctly misses instead of silently
+      // returning this trimmed set.
       const trimmed = [...result]
         .sort((a, b) => {
           if (a.blockNumber !== b.blockNumber) {
@@ -266,8 +292,8 @@ export function createRecordingChainOps(
           }
           return b.logIndex - a.logIndex;
         })
-        .slice(0, RECORDING_SWAP_TRIM);
-      calls.swapLogs[swapLogKey(poolManager, poolId, fromBlock, toBlock)] =
+        .slice(0, cap);
+      calls.swapLogs[swapLogKey(poolManager, poolId, fromBlock, toBlock, cap)] =
         trimmed.map(toRawSwapLogJson);
       return result;
     },

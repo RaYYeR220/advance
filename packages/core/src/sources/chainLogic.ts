@@ -63,6 +63,21 @@ export interface EthUsdPrice {
   block: bigint;
 }
 
+export interface TokenCreatedAt {
+  block: bigint;
+  timestamp: number;
+}
+
+/** `blockAt(timestamp)` was asked for a timestamp before the chain's first block. */
+export class BlockAtBeforeGenesisError extends Error {
+  constructor(timestamp: bigint, genesisTimestamp: bigint) {
+    super(
+      `blockAt: timestamp ${timestamp} is before genesis (block 1 timestamp ${genesisTimestamp})`,
+    );
+    this.name = "BlockAtBeforeGenesisError";
+  }
+}
+
 export interface ChainReader {
   getPoolKey(feesManager: Address, poolId: Hex): Promise<PoolKeyInfo>;
   getShares(
@@ -78,8 +93,17 @@ export interface ChainReader {
   ): Promise<FeeAccrual>;
   getLatestBlock(): Promise<{ number: bigint; timestamp: bigint }>;
   getBlockTimestamp(block: bigint): Promise<bigint>;
-  /** Binary search on `getBlock` timestamps for the latest block with `timestamp <= t`. */
+  /**
+   * Binary search on `getBlock` timestamps for the latest block with `timestamp <= t`.
+   * Throws `BlockAtBeforeGenesisError` if `t` is before block 1's own timestamp — it
+   * never silently clamps to block 1.
+   */
   blockAt(timestamp: bigint): Promise<bigint>;
+  /**
+   * First block at which `token` has non-empty code (`eth_getCode` binary search),
+   * cached per reader instance. Throws if `token` has no code even at the latest block.
+   */
+  tokenCreatedAt(token: Address): Promise<TokenCreatedAt>;
   getCreatorRevenueWindow(params: {
     feesManager: Address;
     poolId: Hex;
@@ -104,10 +128,30 @@ const SWAP_LOG_CHUNK_BLOCKS = 10_000n;
 const DEFAULT_SWAP_CAP = 400;
 /** Base block time used only to seed the `blockAt` binary search guess. */
 const SECONDS_PER_BLOCK_GUESS = 2n;
+/** Bounded concurrency for batched `getTransactionSender` / `getCode` lookups. */
+const BATCH_CONCURRENCY = 20;
+
+/** Runs `fn` over `items` with at most `BATCH_CONCURRENCY` calls in flight at once. */
+async function mapBatched<T, R>(
+  items: readonly T[],
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  for (let i = 0; i < items.length; i += BATCH_CONCURRENCY) {
+    const chunk = items.slice(i, i + BATCH_CONCURRENCY);
+    const chunkResults = await Promise.all(chunk.map((item) => fn(item)));
+    for (let j = 0; j < chunkResults.length; j++) {
+      results[i + j] = chunkResults[j]!;
+    }
+  }
+  return results;
+}
 
 export function buildChainReader(ops: ChainOps): ChainReader {
   const blockTimestampCache = new Map<bigint, bigint>();
+  const tokenCreatedAtCache = new Map<string, TokenCreatedAt>();
   let latestCache: { number: bigint; timestamp: bigint } | undefined;
+  let genesisTimestampCache: bigint | undefined;
 
   async function getBlockTimestamp(block: bigint): Promise<bigint> {
     const cached = blockTimestampCache.get(block);
@@ -135,7 +179,7 @@ export function buildChainReader(ops: ChainOps): ChainReader {
     if (guess < lo) guess = lo;
     if (guess > hi) guess = hi;
 
-    let result = lo;
+    let result: bigint | undefined;
     let first = true;
     while (lo <= hi) {
       const mid = first ? guess : (lo + hi) / 2n;
@@ -147,6 +191,15 @@ export function buildChainReader(ops: ChainOps): ChainReader {
       } else {
         hi = mid - 1n;
       }
+    }
+
+    if (result === undefined) {
+      // Every candidate the search tried (including block 1) had a timestamp after
+      // `timestamp` — it's before genesis. Never silently clamp to block 1.
+      if (genesisTimestampCache === undefined) {
+        genesisTimestampCache = await getBlockTimestamp(1n);
+      }
+      throw new BlockAtBeforeGenesisError(timestamp, genesisTimestampCache);
     }
     return result;
   }
@@ -215,8 +268,9 @@ export function buildChainReader(ops: ChainOps): ChainReader {
         : await getLatestBlock();
 
     const fromTimestamp = atBlockInfo.timestamp - windowSeconds;
-    const fromBlock =
-      fromTimestamp <= 0n ? 1n : await blockAt(fromTimestamp);
+    // Let `blockAt` itself decide what "before genesis" means (throws), rather than
+    // silently clamping to block 1 here for a degenerate (e.g. oversized) window.
+    const fromBlock = await blockAt(fromTimestamp);
 
     const poolKey = await getPoolKey(feesManager, poolId);
     const wethIndex = getWethIndex(poolKey, weth);
@@ -263,7 +317,7 @@ export function buildChainReader(ops: ChainOps): ChainReader {
         start + SWAP_LOG_CHUNK_BLOCKS - 1n > toBlock
           ? toBlock
           : start + SWAP_LOG_CHUNK_BLOCKS - 1n;
-      const chunk = await ops.getSwapLogs(poolManager, poolId, start, end);
+      const chunk = await ops.getSwapLogs(poolManager, poolId, start, end, cap);
       all.push(...chunk);
     }
 
@@ -275,11 +329,14 @@ export function buildChainReader(ops: ChainOps): ChainReader {
     });
     const capped = all.slice(0, cap);
 
+    // Batched (bounded-concurrency), not sequential: the brief requires tx.from lookups
+    // to be issued concurrently rather than one at a time.
     const uniqueHashes = [...new Set(capped.map((s) => s.transactionHash))];
+    const senders = await mapBatched(uniqueHashes, (hash) =>
+      ops.getTransactionSender(hash),
+    );
     const senderByHash = new Map<Hex, Address>();
-    for (const hash of uniqueHashes) {
-      senderByHash.set(hash, await ops.getTransactionSender(hash));
-    }
+    uniqueHashes.forEach((hash, i) => senderByHash.set(hash, senders[i]!));
 
     return capped.map((s) => ({
       poolId,
@@ -315,6 +372,42 @@ export function buildChainReader(ops: ChainOps): ChainReader {
     };
   }
 
+  async function hasCodeAt(token: Address, block: bigint): Promise<boolean> {
+    const code = await ops.getCode(token, block);
+    return code !== undefined && code.toLowerCase() !== "0x";
+  }
+
+  async function tokenCreatedAt(token: Address): Promise<TokenCreatedAt> {
+    const cacheKey = token.toLowerCase();
+    const cached = tokenCreatedAtCache.get(cacheKey);
+    if (cached) return cached;
+
+    const latest = await getLatestBlock();
+    if (!(await hasCodeAt(token, latest.number))) {
+      throw new Error(
+        `tokenCreatedAt: ${token} has no code at the latest block (${latest.number})`,
+      );
+    }
+
+    // Binary search for the first block with non-empty code: invariant
+    // hasCodeAt(hi) === true throughout; find the smallest such block.
+    let lo = 1n;
+    let hi = latest.number;
+    while (lo < hi) {
+      const mid = lo + (hi - lo) / 2n;
+      if (await hasCodeAt(token, mid)) {
+        hi = mid;
+      } else {
+        lo = mid + 1n;
+      }
+    }
+
+    const timestamp = Number(await getBlockTimestamp(hi));
+    const result: TokenCreatedAt = { block: hi, timestamp };
+    tokenCreatedAtCache.set(cacheKey, result);
+    return result;
+  }
+
   return {
     getPoolKey,
     getShares,
@@ -323,6 +416,7 @@ export function buildChainReader(ops: ChainOps): ChainReader {
     getLatestBlock,
     getBlockTimestamp,
     blockAt,
+    tokenCreatedAt,
     getCreatorRevenueWindow,
     getSwaps,
     getEthUsdPrice,

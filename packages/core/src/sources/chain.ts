@@ -10,11 +10,14 @@ export type {
   SwapRecord,
   CreatorRevenueWindow,
   EthUsdPrice,
+  TokenCreatedAt,
 } from "./chainLogic.js";
+export { BlockAtBeforeGenesisError } from "./chainLogic.js";
 export type { ChainFixture, RawSwapLogJson } from "./chainFixture.js";
 export { FixtureMissError } from "./chainFixture.js";
 export {
   createLiveChainOps,
+  isPreLockWrongPoolStatus,
   ZERO_SHARE_ADDRESS,
   type ChainOps,
   type RawSwapLog,
