@@ -28,8 +28,10 @@ function emptyCalls(): ChainFixture["calls"] {
     transactions: {},
     roundData: { "0xfeed:100": ["1", "400000000000", "900", "900", "1"] },
     decimals: { "0xfeed:100": 8 },
-    poolStatus: {},
+    assetState: {},
     dopplerHookFlags: {},
+    lockBeneficiaries: {},
+    airlockAssetData: {},
   };
 }
 
@@ -155,7 +157,9 @@ describe("evidenceHash", () => {
         codes: a.rawReads.codes,
         blocks: a.rawReads.blocks,
         dopplerHookFlags: a.rawReads.dopplerHookFlags,
-        poolStatus: a.rawReads.poolStatus,
+        assetState: a.rawReads.assetState,
+        lockBeneficiaries: a.rawReads.lockBeneficiaries,
+        airlockAssetData: a.rawReads.airlockAssetData,
       },
       poolId: a.poolId,
       feesManager: a.feesManager,

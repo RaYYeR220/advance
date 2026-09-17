@@ -1,148 +1,123 @@
 /**
- * Records a deterministic fixture pair (`bankr.json` + `chain.json`) for one Bankr/Doppler
- * token, by hitting the live Bankr API and an archive-capable Base RPC.
+ * Records a deterministic fixture pair (`bankr.json` + `chain.json`) for one Doppler
+ * token, by hitting the live Bankr API (Base mainnet only) and an archive-capable RPC for
+ * the given chain, then running the engine's own `score()` over a recording `ChainOps` —
+ * so a fixture always contains exactly what the engine actually reads, with no risk of a
+ * hand-maintained call list drifting out of sync with `runStage1`.
  *
  * Usage (from `packages/core`):
- *   node --env-file=../../../internal/.env scripts/record-fixture.ts <token> [slug]
+ *   node --env-file=../../../internal/.env scripts/record-fixture.ts <token> [slug] [--chain=8453|84532]
  *
- * `BASE_RPC_URL` must be set in the environment (an archive-capable RPC, e.g. Alchemy) —
- * `--env-file` is the recommended way to supply it without ever printing or committing it.
- * If unset, falls back to the public default (`https://mainnet.base.org`), which may reject
- * archive `eth_call`s at old blocks.
+ * `BASE_RPC_URL`/`BASE_SEPOLIA_RPC_URL` must be set in the environment (an archive-capable
+ * RPC, e.g. Alchemy) — `--env-file` is the recommended way to supply it without ever
+ * printing or committing it. Falls back to the public defaults, which may reject archive
+ * `eth_call`s at old blocks.
  *
- * Writes: test/fixtures/<slug>/bankr.json, test/fixtures/<slug>/chain.json
+ * Writes: test/fixtures/<slug>/bankr.json (mainnet only), test/fixtures/<slug>/chain.json
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Address } from "viem";
-import {
-  BASE_ETH_USD_CHAINLINK_FEED,
-  BASE_MAINNET_CHAIN_ID,
-  BASE_RPC_URL_DEFAULT,
-  BASE_V4_POOL_MANAGER,
-  BASE_WETH,
-} from "../src/chains.js";
-import { createBankrClient, pickBankrToken } from "../src/sources/bankr.js";
+import { BASE_RPC_URL_DEFAULT, type SupportedChainId } from "../src/chains.js";
+import { createBankrClient, pickBankrToken, type BankrClient } from "../src/sources/bankr.js";
 import { createLiveChainOps } from "../src/sources/chainOps.js";
-import { createRecordingChainOps } from "../src/sources/chainFixture.js";
-import { buildChainReader } from "../src/sources/chainLogic.js";
-import { checkIsWethPool, computeRevenue } from "../src/underwrite/revenue.js";
+import type { ChainFixture } from "../src/sources/chainFixture.js";
+import { score } from "../src/underwrite/engine.js";
 
-const DAY_SECONDS = 86_400n;
+const BASE_SEPOLIA_RPC_URL_DEFAULT = "https://sepolia.base.org";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixturesRoot = resolve(here, "../test/fixtures");
 
+function parseChainFlag(argv: string[]): SupportedChainId {
+  const flag = argv.find((a) => a.startsWith("--chain="));
+  if (!flag) return 8453;
+  const value = Number(flag.slice("--chain=".length));
+  if (value !== 8453 && value !== 84532) {
+    throw new Error(`--chain must be 8453 or 84532, got ${flag}`);
+  }
+  return value;
+}
+
+/** Bankr has no non-mainnet data; off Base mainnet the engine never calls it (discovery
+ * is Airlock-only there), so a stub that throws if ever invoked is safe. */
+function unreachableBankrClient(): BankrClient {
+  return {
+    async getTokenFees(token: Address) {
+      throw new Error(`record-fixture: bankr client unexpectedly called for ${token} (non-mainnet chain)`);
+    },
+  };
+}
+
 async function main() {
-  const token = process.argv[2] as Address | undefined;
+  const positionals = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+  const token = positionals[0] as Address | undefined;
   if (!token) {
-    console.error("usage: record-fixture.ts <token> [slug]");
+    console.error("usage: record-fixture.ts <token> [slug] [--chain=8453|84532]");
     process.exit(1);
   }
+  const chainId = parseChainFlag(process.argv.slice(2));
 
-  const rpcUrl = process.env.BASE_RPC_URL ?? BASE_RPC_URL_DEFAULT;
+  const rpcUrl =
+    process.env.BASE_RPC_URL_OVERRIDE ??
+    (chainId === 8453
+      ? (process.env.BASE_RPC_URL ?? BASE_RPC_URL_DEFAULT)
+      : (process.env.BASE_SEPOLIA_RPC_URL ?? BASE_SEPOLIA_RPC_URL_DEFAULT));
 
-  const bankr = createBankrClient();
-  const bankrResponse = await bankr.getTokenFees(token);
-  const entry = pickBankrToken(bankrResponse, token);
-
-  const slug = process.argv[3] ?? entry.symbol.toLowerCase();
+  let bankr: BankrClient;
+  let slug: string;
+  if (chainId === 8453) {
+    const liveBankr = createBankrClient();
+    const bankrResponse = await liveBankr.getTokenFees(token);
+    const entry = pickBankrToken(bankrResponse, token);
+    slug = process.argv[3]?.startsWith("--") ? entry.symbol.toLowerCase() : (process.argv[3] ?? entry.symbol.toLowerCase());
+    const outDir = resolve(fixturesRoot, slug);
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(
+      resolve(outDir, "bankr.json"),
+      JSON.stringify(bankrResponse, null, 2) + "\n",
+    );
+    bankr = liveBankr;
+  } else {
+    slug = process.argv[3]?.startsWith("--") ? token.toLowerCase() : (process.argv[3] ?? token.toLowerCase());
+    bankr = unreachableBankrClient();
+  }
   const outDir = resolve(fixturesRoot, slug);
   mkdirSync(outDir, { recursive: true });
 
+  // `score()` wraps `deps.chain` in its own recording layer internally and exposes the
+  // final result as `evidence.rawReads` — exactly the shape `ChainFixture.calls` needs,
+  // and guaranteed to contain everything the engine actually read (never a hand-maintained
+  // call list that can drift out of sync with `runStage1`).
   const liveOps = createLiveChainOps(rpcUrl);
-  const { ops, dump } = createRecordingChainOps(liveOps, {
-    token,
-    chainId: BASE_MAINNET_CHAIN_ID,
-  });
-  const reader = buildChainReader(ops);
-
-  const feesManager = entry.initializer;
-  const poolId = entry.poolId;
-  const creator = bankrResponse.address;
-
-  const latest = await reader.getLatestBlock();
-  const poolKey = await reader.getPoolKey(feesManager, poolId);
-  await reader.getShares(feesManager, poolId, creator);
-
-  const createdAt = await reader.tokenCreatedAt(token);
-  console.log(
-    `  tokenCreatedAt: block=${createdAt.block} timestamp=${createdAt.timestamp} (${new Date(createdAt.timestamp * 1000).toISOString()})`,
+  const result = await score(
+    { token, agentCard: token, agentId: 0n, chainId, hub: token, now: Math.floor(Date.now() / 1000) },
+    { bankr, chain: liveOps, env: { network: chainId === 8453 ? "mainnet" : "demo" } },
   );
 
-  const isWethPaired = await checkIsWethPool(reader, feesManager, poolId, BASE_WETH);
-
-  let contributingSwapKeys: Set<string> | undefined;
-
-  if (isWethPaired) {
-    // Records every call `computeRevenue` makes — the 1d/7d/30d windows, the 8 daily
-    // block anchors + fee-accrual reads behind the 7 on-chain CV buckets, tokenCreatedAt,
-    // and the ETH/USD read — so fixtures always match exactly what production code needs.
-    const revenue = await computeRevenue(reader, {
-      token,
-      feesManager,
-      poolId,
-      creator,
-      weth: BASE_WETH,
-      ethUsdFeed: BASE_ETH_USD_CHAINLINK_FEED,
-      atBlock: latest.number,
-    });
-    console.log(
-      `  revenueWei d1=${Number(revenue.revenueWei.d1) / 1e18} d7=${
-        Number(revenue.revenueWei.d7) / 1e18
-      } d30=${Number(revenue.revenueWei.d30) / 1e18}`,
-    );
-    console.log(
-      `  dailyRevenueWei (oldest..newest): ${revenue.dailyRevenueWei
-        .map((w) => Number(w) / 1e18)
-        .join(", ")}`,
-    );
-
-    const swapFromTimestamp = latest.timestamp - 7n * DAY_SECONDS;
-    const swapFromBlock = await reader.blockAt(swapFromTimestamp);
-    const swaps = await reader.getSwaps({
-      poolManager: BASE_V4_POOL_MANAGER,
-      poolId,
-      fromBlock: swapFromBlock,
-      toBlock: latest.number,
-      cap: 400,
-    });
-    console.log(`  recorded ${swaps.length} swaps over trailing 7d`);
-
-    // Only the swaps that actually made the final (capped) result matter for replay —
-    // every other raw log fetched along the way is discardable. Trimming to exactly
-    // this set keeps fixtures for busy pools well under a megabyte.
-    contributingSwapKeys = new Set(
-      swaps.map((s) => `${s.blockNumber}:${s.logIndex}`),
-    );
+  console.log(`score() result: kind=${result.kind}`);
+  if (result.kind === "deny") {
+    console.log(`  reasons: ${result.reasons.join(", ")}`);
   } else {
     console.log(
-      `  ${slug}: not WETH-paired (currency0=${poolKey.currency0} currency1=${poolKey.currency1}) — skipping revenue/swap/price calls`,
+      `  capMicroUsd=${result.terms.capMicroUsd} haircutBps=${result.terms.haircutBps}`,
     );
   }
 
-  const chainFixture = dump();
-  if (contributingSwapKeys) {
-    for (const key of Object.keys(chainFixture.calls.swapLogs)) {
-      chainFixture.calls.swapLogs[key] = chainFixture.calls.swapLogs[
-        key
-      ]!.filter((log) =>
-        contributingSwapKeys!.has(`${log.blockNumber}:${log.logIndex}`),
-      );
-    }
-  }
+  const chainFixture: ChainFixture = {
+    token,
+    chainId,
+    recordedAt: new Date().toISOString(),
+    calls: result.evidence.rawReads,
+  };
 
-  writeFileSync(
-    resolve(outDir, "bankr.json"),
-    JSON.stringify(bankrResponse, null, 2) + "\n",
-  );
   writeFileSync(
     resolve(outDir, "chain.json"),
     JSON.stringify(chainFixture, null, 2) + "\n",
   );
 
-  console.log(`recorded fixture "${slug}" for token ${token} at block ${latest.number}`);
+  console.log(`recorded fixture "${slug}" for token ${token} on chain ${chainId}`);
 }
 
 main().catch((err) => {

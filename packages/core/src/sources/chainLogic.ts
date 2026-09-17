@@ -1,5 +1,12 @@
 import type { Address, Hex } from "viem";
-import type { ChainOps, RawSwapLog } from "./chainOps.js";
+import { encodeAbiParameters, keccak256, parseAbiParameters } from "viem";
+import type {
+  AirlockAssetData,
+  AssetStateRaw,
+  ChainOps,
+  LockBeneficiary,
+  RawSwapLog,
+} from "./chainOps.js";
 
 export interface PoolKeyInfo {
   currency0: Address;
@@ -75,9 +82,9 @@ export const POOL_STATUS_LOCKED = 2;
  * flags bitmask. */
 const HOOK_ON_GRADUATION_FLAG = 4n;
 
-const ZERO_ADDRESS: Address = "0x0000000000000000000000000000000000000000";
+export const ZERO_ADDRESS: Address = "0x0000000000000000000000000000000000000000";
 
-export interface PoolStatusInfo {
+export interface AssetState {
   /** Raw `PoolStatus` enum value (`POOL_STATUS_LOCKED` = 2 is the only eligible one). */
   status: number;
   /** The pool's associated Doppler hook, or the zero address if none is set. */
@@ -86,15 +93,49 @@ export interface PoolStatusInfo {
    * True if `dopplerHook` is registered for the `onGraduation` callback — the pool can
    * later graduate/migrate even while currently Locked, which permanently disables fee
    * collection for the escrow. A pool with this set is treated as ineligible the same as
-   * a pool that isn't Locked at all.
+   * a pool that isn't Locked at all. NOTE: this is a point-in-time read — the Airlock
+   * owner or a timelock could enable/attach a graduation-capable hook later, so a
+   * `pool_not_locked` clearance here isn't a permanent guarantee, only "true as of this
+   * decision" (see the note on `DenyReason` in `rules.ts`).
    */
   hookAllowsGraduation: boolean;
+  poolKey: PoolKeyInfo;
+  /** `keccak256(abi.encode(poolKey))` — the Uniswap v4 `PoolId` this asset's pool actually
+   * has on-chain, independent of whatever a discovery source (Bankr, Airlock) claims it
+   * is. Callers bind a claimed `poolId` to the token by requiring equality with this. */
+  poolId: Hex;
 }
 
 /** True iff a pool is safe collateral for the escrow: currently Locked, and its hook (if
  * any) isn't registered to trigger graduation later. */
-export function isPoolEligibleForEscrow(info: PoolStatusInfo): boolean {
+export function isPoolEligibleForEscrow(info: Pick<AssetState, "status" | "hookAllowsGraduation">): boolean {
   return info.status === POOL_STATUS_LOCKED && !info.hookAllowsGraduation;
+}
+
+/** Uniswap v4 `PoolId = keccak256(abi.encode(poolKey))` — verified against a known real
+ * poolId (Ratspeak) before being relied on for the token/pool binding check. */
+export function computePoolId(poolKey: PoolKeyInfo): Hex {
+  const encoded = encodeAbiParameters(
+    parseAbiParameters("address,address,uint24,int24,address"),
+    [poolKey.currency0, poolKey.currency1, poolKey.fee, poolKey.tickSpacing, poolKey.hooks],
+  );
+  return keccak256(encoded);
+}
+
+function toPoolKeyInfo(raw: AssetStateRaw["poolKey"]): PoolKeyInfo {
+  const [currency0, currency1, fee, tickSpacing, hooks] = raw;
+  return { currency0, currency1, fee, tickSpacing, hooks };
+}
+
+/** Picks the majority beneficiary (>50% shares) from a `Lock` event's beneficiary list —
+ * the on-chain equivalent of Bankr's single `address` creator field. Returns `undefined`
+ * (never a fabricated address) if no beneficiary holds a majority. */
+export function pickMajorityBeneficiary(
+  beneficiaries: readonly LockBeneficiary[],
+): Address | undefined {
+  const HALF_WAD = 500_000_000_000_000_000n; // 0.5e18
+  const majority = beneficiaries.find((b) => b.shares > HALF_WAD);
+  return majority?.beneficiary;
 }
 
 /** `blockAt(timestamp)` was asked for a timestamp before the chain's first block. */
@@ -151,9 +192,17 @@ export interface ChainReader {
     cap?: number;
   }): Promise<SwapRecord[]>;
   getEthUsdPrice(feed: Address, block?: bigint): Promise<EthUsdPrice>;
-  /** Current on-chain `PoolStatus` + graduation-hook eligibility for `asset` (the token
-   * address, not the poolId — `DopplerHookInitializer.getState` is keyed by asset). */
-  getPoolStatus(feesManager: Address, asset: Address): Promise<PoolStatusInfo>;
+  /** Current on-chain `PoolStatus`, graduation-hook eligibility, and the pool's true
+   * `poolKey`/`poolId` for `asset` (the token address, not the poolId —
+   * `DopplerHookInitializer.getState` is keyed by asset). */
+  getAssetState(feesManager: Address, asset: Address): Promise<AssetState>;
+  /** `eth_chainId`, cached per reader instance. */
+  getChainId(): Promise<number>;
+  /** The `Lock` event's beneficiary list for `asset` — the on-chain source of "who holds
+   * shares", used by Airlock discovery. */
+  getLockBeneficiaries(feesManager: Address, asset: Address): Promise<LockBeneficiary[]>;
+  /** `Airlock.getAssetData(asset)` — thin passthrough, used by Airlock discovery. */
+  getAirlockAssetData(airlock: Address, asset: Address): Promise<AirlockAssetData>;
 }
 
 const SWAP_LOG_CHUNK_BLOCKS = 10_000n;
@@ -407,17 +456,46 @@ export function buildChainReader(ops: ChainOps): ChainReader {
     };
   }
 
-  async function getPoolStatus(
+  async function getAssetState(
     feesManager: Address,
     asset: Address,
-  ): Promise<PoolStatusInfo> {
-    const [status, dopplerHook] = await ops.getPoolStatusRaw(feesManager, asset);
+  ): Promise<AssetState> {
+    const raw = await ops.getAssetStateRaw(feesManager, asset);
     let hookAllowsGraduation = false;
-    if (dopplerHook.toLowerCase() !== ZERO_ADDRESS) {
-      const flags = await ops.getDopplerHookFlags(feesManager, dopplerHook);
+    if (raw.dopplerHook.toLowerCase() !== ZERO_ADDRESS) {
+      const flags = await ops.getDopplerHookFlags(feesManager, raw.dopplerHook);
       hookAllowsGraduation = (flags & HOOK_ON_GRADUATION_FLAG) !== 0n;
     }
-    return { status, dopplerHook, hookAllowsGraduation };
+    const poolKey = toPoolKeyInfo(raw.poolKey);
+    return {
+      status: raw.status,
+      dopplerHook: raw.dopplerHook,
+      hookAllowsGraduation,
+      poolKey,
+      poolId: computePoolId(poolKey),
+    };
+  }
+
+  let chainIdCache: number | undefined;
+  async function getChainId(): Promise<number> {
+    if (chainIdCache === undefined) {
+      chainIdCache = await ops.getChainId();
+    }
+    return chainIdCache;
+  }
+
+  function getLockBeneficiaries(
+    feesManager: Address,
+    asset: Address,
+  ): Promise<LockBeneficiary[]> {
+    return ops.getLockBeneficiaries(feesManager, asset);
+  }
+
+  function getAirlockAssetData(
+    airlock: Address,
+    asset: Address,
+  ): Promise<AirlockAssetData> {
+    return ops.getAirlockAssetData(airlock, asset);
   }
 
   async function hasCodeAt(token: Address, block: bigint): Promise<boolean> {
@@ -468,6 +546,9 @@ export function buildChainReader(ops: ChainOps): ChainReader {
     getCreatorRevenueWindow,
     getSwaps,
     getEthUsdPrice,
-    getPoolStatus,
+    getAssetState,
+    getChainId,
+    getLockBeneficiaries,
+    getAirlockAssetData,
   };
 }

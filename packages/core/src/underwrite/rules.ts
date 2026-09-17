@@ -8,6 +8,13 @@ const CONCENTRATION_DENY_THRESHOLD = 0.8;
 const WASH_DENY_THRESHOLD = 0.5;
 const MIN_PRINCIPAL_USDC_WEI = 1_000_000n; // $1
 
+/**
+ * `pool_not_locked` is a point-in-time check: it reflects `ChainReader.getAssetState`'s
+ * status/hook read at decision time, not a permanent guarantee. The Airlock owner or a
+ * timelock could still change or attach a graduation-capable hook to a pool after this
+ * decision was made and signed — this rule can only fail closed on what's true *now*, not
+ * on what a governance action might do later.
+ */
 export type DenyReason =
   | "not_bankr_doppler"
   | "not_weth_pool"
@@ -32,7 +39,7 @@ export interface RulesContext {
   isWethPool: boolean;
   /**
    * The pool's on-chain status is Locked and its Doppler hook (if any) isn't enabled for
-   * the `onGraduation` callback (see `ChainReader.getPoolStatus` /
+   * the `onGraduation` callback (see `ChainReader.getAssetState` /
    * `isPoolEligibleForEscrow`). Graduation permanently disables fee collection for the
    * escrow, so this is checked before it happens, not just after. Optional and defaults to
    * `true` (assume eligible) so callers that don't check pool status aren't forced to opt

@@ -1,22 +1,26 @@
 import { randomBytes } from "node:crypto";
 import type { Address, Hex } from "viem";
+import { getAddress } from "viem";
 import {
-  BASE_ETH_USD_CHAINLINK_FEED,
-  BASE_V4_POOL_MANAGER,
-  BASE_WETH,
+  chainAddresses,
+  isSupportedChainId,
+  type SupportedChainId,
 } from "../chains.js";
-import {
-  BankrTokenNotFoundError,
-  pickBankrToken,
-  type BankrClient,
-} from "../sources/bankr.js";
+import type { BankrClient } from "../sources/bankr.js";
 import {
   createRecordingChainOps,
   isPoolEligibleForEscrow,
+  ZERO_ADDRESS,
   type ChainFixture,
   type ChainOps,
 } from "../sources/chain.js";
-import { buildChainReader } from "../sources/chainLogic.js";
+import { buildChainReader, type ChainReader } from "../sources/chainLogic.js";
+import {
+  createAirlockDiscoverySource,
+  createBankrDiscoverySource,
+  DiscoveryNotFoundError,
+  type DiscoveryResult,
+} from "../sources/discovery.js";
 import type { LlmClient } from "../llm.js";
 import { signTermSheet, termSheetDigest, type TermSheet } from "../termsheet.js";
 import { buildEvidence, evidenceHash, type EvidenceBundle } from "./evidence.js";
@@ -28,24 +32,29 @@ import {
   type UntrustedTokenMetadata,
 } from "./memo.js";
 import { computeQuality, type Quality } from "./quality.js";
-import { checkIsWethPool, computeRevenue, type RevenueWindows } from "./revenue.js";
+import { computeRevenue, type RevenueWindows } from "./revenue.js";
 import { applyRules, termsDenyReasons, type DenyReason } from "./rules.js";
 import {
+  assertUsableEnv,
   computeTerms,
   type ComputedTerms,
   type TermsSummary,
   type UnderwritingEnv,
 } from "./terms.js";
 
+export type { SupportedChainId } from "../chains.js";
+
 const DAY_SECONDS = 86_400n;
 const SWAP_LOOKBACK_DAYS = 7n;
 const SWAP_SAMPLE_CAP = 400;
 const DEADLINE_WINDOW_SECONDS = 3600n;
+/** `input.now`, if given, must be within this many seconds of the chain's own latest
+ * block timestamp — otherwise the caller's clock (or the request itself) isn't trusted
+ * enough to derive a signed deadline from. */
+const MAX_NOW_SKEW_SECONDS = 300;
 
-const ZERO_ADDRESS: Address = "0x0000000000000000000000000000000000000000";
 const ZERO_BYTES32: Hex = `0x${"0".repeat(64)}` as Hex;
-
-export type SupportedChainId = 8453 | 84532;
+const SIGNER_KEY_PATTERN = /^0x[0-9a-fA-F]{64}$/;
 
 export interface UnderwriteInput {
   token: Address;
@@ -53,8 +62,9 @@ export interface UnderwriteInput {
   agentId: bigint;
   chainId: SupportedChainId;
   hub: Address;
-  /** Unix seconds. Only used to derive `TermSheet.deadline` — every chain read is
-   * anchored to the reader's own latest block, never to this value. */
+  /** Unix seconds. Only used to derive `TermSheet.deadline` (as a sanity check against
+   * chain time) — every chain read is anchored to the reader's own latest block, never to
+   * this value. Must be within `MAX_NOW_SKEW_SECONDS` of chain time. */
   now: number;
 }
 
@@ -67,11 +77,19 @@ export interface UnderwriteDeps {
   /** Hex private key of the underwriter signer. Never logged. */
   signerKey: Hex;
   env: UnderwritingEnv;
+  /**
+   * Known-Advance-escrow lookup, forwarded to `applyRules`. The `AdvanceHub` contract
+   * (`loanIdOf`) this will eventually call doesn't exist yet, so this is optional;
+   * defaults to `applyRules`'s own always-false stub when omitted.
+   */
+  isEscrowed?: (poolId: Hex) => Promise<boolean>;
 }
 
+export type ScoreDeps = Pick<UnderwriteDeps, "bankr" | "chain" | "env">;
+
 export type ScoreResult =
-  | { kind: "deny"; reasons: DenyReason[]; evidenceHash: Hex; evidence: EvidenceBundle }
-  | { kind: "eligible"; terms: ComputedTerms; evidenceHash: Hex; evidence: EvidenceBundle };
+  | { kind: "deny"; token: Address; reasons: DenyReason[]; evidenceHash: Hex; evidence: EvidenceBundle }
+  | { kind: "eligible"; token: Address; terms: ComputedTerms; evidenceHash: Hex; evidence: EvidenceBundle };
 
 export type Decision =
   | {
@@ -92,6 +110,16 @@ export type Decision =
       evidenceHash: Hex;
       evidence: EvidenceBundle;
     };
+
+/** Config the caller got wrong — a bad address, an out-of-range value, a clock too far
+ * from chain time, an env ceiling above policy. Thrown to the caller directly; never
+ * turned into a deny (the request never got far enough to underwrite anything). */
+export class InvalidUnderwriteInput extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidUnderwriteInput";
+  }
+}
 
 const ZERO_REVENUE: RevenueWindows = {
   revenueWei: { d1: 0n, d7: 0n, d30: 0n },
@@ -124,11 +152,11 @@ const ZERO_TERMS: ComputedTerms = {
   auctionBlocks: 0n,
 };
 
-/** Redacts any `http(s)://` URL from an error message before it can reach evidence —
- * an RPC URL must never be recorded, and this catches it regardless of which dependency
- * (chain client, HTTP client) embedded it in the message. */
+/** Redacts any `http(s)://` or `ws(s)://` URL from an error message before it can reach
+ * evidence — an RPC URL must never be recorded, and this catches it regardless of which
+ * dependency (chain client, HTTP client, websocket transport) embedded it in the message. */
 function redactSecrets(message: string): string {
-  return message.replace(/https?:\/\/\S+/gi, "[redacted]");
+  return message.replace(/(https?|wss?):\/\/\S+/gi, "[redacted]");
 }
 
 function errorMessage(err: unknown): string {
@@ -146,6 +174,66 @@ function toTermsSummary(terms: ComputedTerms): TermsSummary {
   return summary;
 }
 
+/**
+ * Validates everything about `input`/`deps` that can be checked without any I/O — address
+ * formats (also normalizing every address to EIP-55 checksum form, so evidence and
+ * fixture keys are casing-independent downstream), `agentId >= 0`, a sane `now`, the
+ * signer key's shape, and the env's own ceilings (the exact same rule `computeTerms`
+ * enforces, via the shared `assertUsableEnv`). Runs before any chain or LLM call.
+ */
+function validateInput(
+  input: UnderwriteInput,
+  deps: { env: UnderwritingEnv; signerKey?: Hex },
+): UnderwriteInput {
+  if (!isSupportedChainId(input.chainId)) {
+    throw new InvalidUnderwriteInput(`unsupported chainId: ${input.chainId}`);
+  }
+
+  let token: Address;
+  let agentCard: Address;
+  let hub: Address;
+  try {
+    token = getAddress(input.token);
+    agentCard = getAddress(input.agentCard);
+    hub = getAddress(input.hub);
+  } catch (err) {
+    throw new InvalidUnderwriteInput(`invalid address in input: ${errorMessage(err)}`);
+  }
+
+  if (input.agentId < 0n) {
+    throw new InvalidUnderwriteInput(`agentId must be >= 0, got ${input.agentId}`);
+  }
+  if (!Number.isInteger(input.now) || input.now <= 0) {
+    throw new InvalidUnderwriteInput(
+      `now must be a positive integer unix timestamp, got ${input.now}`,
+    );
+  }
+  if (deps.signerKey !== undefined && !SIGNER_KEY_PATTERN.test(deps.signerKey)) {
+    throw new InvalidUnderwriteInput("signerKey must be a 0x-prefixed 32-byte hex string");
+  }
+
+  try {
+    assertUsableEnv(deps.env);
+  } catch (err) {
+    throw new InvalidUnderwriteInput(errorMessage(err));
+  }
+
+  return { ...input, token, agentCard, hub };
+}
+
+/** `input.now`, if it drifted more than `MAX_NOW_SKEW_SECONDS` from the chain's own
+ * latest block timestamp, isn't trusted — reject up front rather than deriving a signed
+ * deadline from a clock that might be wrong (or an attempt to backdate/postdate one). */
+function validateChainTime(input: UnderwriteInput, latestTimestamp: bigint): void {
+  const chainNow = Number(latestTimestamp);
+  const skew = Math.abs(input.now - chainNow);
+  if (skew > MAX_NOW_SKEW_SECONDS) {
+    throw new InvalidUnderwriteInput(
+      `input.now (${input.now}) is ${skew}s from chain time (${chainNow}), max ${MAX_NOW_SKEW_SECONDS}s`,
+    );
+  }
+}
+
 /** Mutable state accumulated while a single `score`/`underwrite` call runs, so a thrown
  * error at any point can still be turned into an evidence bundle reflecting whatever was
  * actually learned before the failure — never fabricated, never left blank when known. */
@@ -156,6 +244,7 @@ interface Progress {
   quality: Quality;
   computedTerms: ComputedTerms;
   swapSample: { fromBlock: bigint; toBlock: bigint; cap: number };
+  discoveryViews: { bankr?: DiscoveryResult; airlock?: DiscoveryResult };
   dump: () => ChainFixture["calls"];
 }
 
@@ -167,30 +256,9 @@ function freshProgress(dump: () => ChainFixture["calls"]): Progress {
     quality: ZERO_QUALITY,
     computedTerms: ZERO_TERMS,
     swapSample: { fromBlock: 0n, toBlock: 0n, cap: 0 },
+    discoveryViews: {},
     dump,
   };
-}
-
-function buildDataUnavailableEvidence(
-  input: UnderwriteInput,
-  progress: Progress,
-  err: unknown,
-): { evidence: EvidenceBundle; evidenceHash: Hex } {
-  const evidence = buildEvidence({
-    chainId: input.chainId,
-    token: input.token,
-    feesManager: progress.feesManager,
-    poolId: progress.poolId,
-    rawReads: progress.dump(),
-    swapSample: progress.swapSample,
-    revenue: progress.revenue,
-    quality: progress.quality,
-    computedTerms: progress.computedTerms,
-    rulesFired: ["data_unavailable"],
-    finalTerms: progress.computedTerms,
-    error: errorMessage(err),
-  });
-  return { evidence, evidenceHash: evidenceHash(evidence) };
 }
 
 interface Stage1Deny {
@@ -217,10 +285,14 @@ interface Stage1Eligible {
 
 type Stage1Result = Stage1Deny | Stage1Eligible;
 
-function denyStage1(
+/** Builds a deny (or `data_unavailable`) evidence bundle straight from whatever
+ * `progress` has accumulated so far — the one place every early-exit and the top-level
+ * catch construct their `EvidenceBundle`, so they can never drift out of sync. */
+function buildDeny(
   input: UnderwriteInput,
   progress: Progress,
   reasons: DenyReason[],
+  extra?: { error?: string; discovery?: Progress["discoveryViews"] },
 ): Stage1Deny {
   const evidence = buildEvidence({
     chainId: input.chainId,
@@ -234,8 +306,103 @@ function denyStage1(
     computedTerms: progress.computedTerms,
     rulesFired: reasons,
     finalTerms: progress.computedTerms,
+    error: extra?.error,
+    discovery:
+      extra?.discovery && (extra.discovery.bankr || extra.discovery.airlock)
+        ? extra.discovery
+        : undefined,
   });
   return { kind: "deny", reasons, evidence, evidenceHash: evidenceHash(evidence) };
+}
+
+function buildDataUnavailableDeny(
+  input: UnderwriteInput,
+  progress: Progress,
+  err: unknown,
+): Stage1Deny {
+  return buildDeny(input, progress, ["data_unavailable"], { error: errorMessage(err) });
+}
+
+type DiscoveryStep = { result: DiscoveryResult } | { deny: Stage1Deny };
+
+/**
+ * Resolves who the pool/feesManager/creator are for `input.token`. On Base mainnet, both
+ * Bankr and the on-chain Airlock source are consulted concurrently and must agree on
+ * `feesManager`/`poolId`/`numeraire` (a disagreement — including only one side finding a
+ * pool at all — denies `data_unavailable` with both raw views in evidence). Off mainnet,
+ * Airlock is the only source (Bankr has no non-mainnet data). Either way, a genuine "no
+ * pool for this token" from every consulted source denies `not_bankr_doppler`; any other
+ * failure (a real outage, malformed data) propagates so the caller fails closed.
+ */
+async function resolveDiscovery(
+  input: UnderwriteInput,
+  deps: Pick<UnderwriteDeps, "bankr" | "chain" | "env">,
+  reader: ChainReader,
+  progress: Progress,
+): Promise<DiscoveryStep> {
+  const addresses = chainAddresses(input.chainId);
+  const airlockSource = createAirlockDiscoverySource(reader, addresses.dopplerAirlock);
+
+  if (input.chainId !== 8453) {
+    try {
+      const airlockResult = await airlockSource.discover(input.token);
+      progress.discoveryViews = { airlock: airlockResult };
+      return { result: airlockResult };
+    } catch (err) {
+      if (err instanceof DiscoveryNotFoundError) {
+        return { deny: buildDeny(input, progress, ["not_bankr_doppler"]) };
+      }
+      throw err;
+    }
+  }
+
+  const bankrSource = createBankrDiscoverySource(deps.bankr);
+  const [bankrOutcome, airlockOutcome] = await Promise.allSettled([
+    bankrSource.discover(input.token),
+    airlockSource.discover(input.token),
+  ]);
+
+  const bankrResult = bankrOutcome.status === "fulfilled" ? bankrOutcome.value : undefined;
+  const airlockResult =
+    airlockOutcome.status === "fulfilled" ? airlockOutcome.value : undefined;
+  progress.discoveryViews = { bankr: bankrResult, airlock: airlockResult };
+
+  // A real failure (not "no pool found") must fail closed, not be silently treated as a
+  // clean miss from that one source.
+  if (bankrOutcome.status === "rejected" && !(bankrOutcome.reason instanceof DiscoveryNotFoundError)) {
+    throw bankrOutcome.reason;
+  }
+  if (
+    airlockOutcome.status === "rejected" &&
+    !(airlockOutcome.reason instanceof DiscoveryNotFoundError)
+  ) {
+    throw airlockOutcome.reason;
+  }
+
+  if (!bankrResult && !airlockResult) {
+    return { deny: buildDeny(input, progress, ["not_bankr_doppler"]) };
+  }
+  if (!bankrResult || !airlockResult) {
+    return {
+      deny: buildDeny(input, progress, ["data_unavailable"], {
+        discovery: progress.discoveryViews,
+      }),
+    };
+  }
+
+  const agree =
+    bankrResult.feesManager.toLowerCase() === airlockResult.feesManager.toLowerCase() &&
+    bankrResult.poolId.toLowerCase() === airlockResult.poolId.toLowerCase() &&
+    bankrResult.numeraire.toLowerCase() === airlockResult.numeraire.toLowerCase();
+  if (!agree) {
+    return {
+      deny: buildDeny(input, progress, ["data_unavailable"], {
+        discovery: progress.discoveryViews,
+      }),
+    };
+  }
+
+  return { result: bankrResult };
 }
 
 /**
@@ -246,53 +413,54 @@ function denyStage1(
  */
 async function runStage1(
   input: UnderwriteInput,
-  deps: UnderwriteDeps,
-  reader: ReturnType<typeof buildChainReader>,
+  deps: UnderwriteDeps | ScoreDeps,
+  reader: ChainReader,
   progress: Progress,
 ): Promise<Stage1Result> {
-  let bankrResponse: Awaited<ReturnType<UnderwriteDeps["bankr"]["getTokenFees"]>>;
-  try {
-    bankrResponse = await deps.bankr.getTokenFees(input.token);
-  } catch (err) {
-    if (err instanceof BankrTokenNotFoundError) {
-      return denyStage1(input, progress, ["not_bankr_doppler"]);
-    }
-    throw err;
+  const addresses = chainAddresses(input.chainId);
+
+  const discoveryStep = await resolveDiscovery(input, deps, reader, progress);
+  if ("deny" in discoveryStep) return discoveryStep.deny;
+  const discovery = discoveryStep.result;
+
+  progress.feesManager = discovery.feesManager;
+  progress.poolId = discovery.poolId;
+
+  // Bind the pool to the token: the claimed feesManager must be the chain's known Doppler
+  // deployment, and the claimed poolId must equal the on-chain poolKey's own hash — a
+  // wrong layout or an unknown initializer is a definitive on-chain fact, not a
+  // source-disagreement ambiguity, so it denies `not_bankr_doppler` even when only one
+  // source was ever consulted (Sepolia).
+  if (discovery.feesManager.toLowerCase() !== addresses.dopplerFeesManager.toLowerCase()) {
+    return buildDeny(input, progress, ["not_bankr_doppler"], {
+      discovery: progress.discoveryViews,
+    });
+  }
+  const assetState = await reader.getAssetState(discovery.feesManager, input.token);
+  if (assetState.poolId.toLowerCase() !== discovery.poolId.toLowerCase()) {
+    return buildDeny(input, progress, ["not_bankr_doppler"], {
+      discovery: progress.discoveryViews,
+    });
   }
 
-  let entry: ReturnType<typeof pickBankrToken>;
-  try {
-    entry = pickBankrToken(bankrResponse, input.token);
-  } catch (err) {
-    if (err instanceof BankrTokenNotFoundError) {
-      return denyStage1(input, progress, ["not_bankr_doppler"]);
-    }
-    throw err;
-  }
-
-  const feesManager = entry.initializer;
-  const poolId = entry.poolId;
-  progress.feesManager = feesManager;
-  progress.poolId = poolId;
-  const creator = bankrResponse.address;
-
-  const isWethPool = await checkIsWethPool(reader, feesManager, poolId, BASE_WETH);
+  const isWethPool =
+    assetState.poolKey.currency0.toLowerCase() === addresses.weth.toLowerCase() ||
+    assetState.poolKey.currency1.toLowerCase() === addresses.weth.toLowerCase();
   if (!isWethPool) {
-    return denyStage1(input, progress, ["not_weth_pool"]);
+    return buildDeny(input, progress, ["not_weth_pool"]);
   }
 
-  const poolStatus = await reader.getPoolStatus(feesManager, input.token);
-  if (!isPoolEligibleForEscrow(poolStatus)) {
-    return denyStage1(input, progress, ["pool_not_locked"]);
+  if (!isPoolEligibleForEscrow(assetState)) {
+    return buildDeny(input, progress, ["pool_not_locked"]);
   }
 
   const revenue = await computeRevenue(reader, {
     token: input.token,
-    feesManager,
-    poolId,
-    creator,
-    weth: BASE_WETH,
-    ethUsdFeed: BASE_ETH_USD_CHAINLINK_FEED,
+    feesManager: discovery.feesManager,
+    poolId: discovery.poolId,
+    creator: discovery.creator,
+    weth: addresses.weth,
+    ethUsdFeed: addresses.ethUsdFeed,
   });
   progress.revenue = revenue;
 
@@ -308,22 +476,31 @@ async function runStage1(
   progress.swapSample = swapSample;
 
   const swaps = await reader.getSwaps({
-    poolManager: BASE_V4_POOL_MANAGER,
-    poolId,
+    poolManager: addresses.poolManager,
+    poolId: discovery.poolId,
     fromBlock: swapSample.fromBlock,
     toBlock: swapSample.toBlock,
     cap: swapSample.cap,
   });
 
   const quality = computeQuality(swaps, {
-    creator,
+    creator: discovery.creator,
     ageSeconds: revenue.ageSeconds,
     recentDailyRevenue: revenue.dailyRevenueWei,
   });
   progress.quality = quality;
 
+  // `isEscrowed` only exists on the richer `UnderwriteDeps` (score()'s deps never have
+  // it) — a plain property read on an object that lacks it is `undefined`, not an error.
+  const isEscrowed = (deps as Partial<UnderwriteDeps>).isEscrowed;
   const rulesReasons = await applyRules(
-    { poolId, poolFound: true, isWethPool: true, poolLocked: true },
+    {
+      poolId: discovery.poolId,
+      poolFound: true,
+      isWethPool: true,
+      poolLocked: true,
+      isEscrowed,
+    },
     revenue,
     quality,
   );
@@ -335,8 +512,8 @@ async function runStage1(
   const evidence = buildEvidence({
     chainId: input.chainId,
     token: input.token,
-    feesManager,
-    poolId,
+    feesManager: discovery.feesManager,
+    poolId: discovery.poolId,
     rawReads: progress.dump(),
     swapSample,
     revenue,
@@ -353,11 +530,11 @@ async function runStage1(
 
   return {
     kind: "eligible",
-    feesManager,
-    poolId,
-    creator,
-    tokenName: entry.name,
-    tokenSymbol: entry.symbol,
+    feesManager: discovery.feesManager,
+    poolId: discovery.poolId,
+    creator: discovery.creator,
+    tokenName: discovery.tokenName,
+    tokenSymbol: discovery.tokenSymbol,
     revenue,
     quality,
     computedTerms,
@@ -367,12 +544,32 @@ async function runStage1(
   };
 }
 
-function engineContext(input: UnderwriteInput, deps: UnderwriteDeps) {
+function engineContext(input: UnderwriteInput, deps: Pick<UnderwriteDeps, "chain">) {
   const { ops, dump } = createRecordingChainOps(deps.chain, {
     token: input.token,
     chainId: input.chainId,
   });
   return { reader: buildChainReader(ops), dump: () => dump().calls };
+}
+
+/** Chain-id guard: the injected `ChainReader` must actually be talking to `input.chainId`
+ * — every address in `chainAddresses(input.chainId)` is meaningless otherwise. A mismatch
+ * throws (caught by the caller's top-level catch as `data_unavailable`), checked before
+ * any discovery, signing, or LLM call. */
+async function assertChainIdMatches(
+  input: UnderwriteInput,
+  reader: ChainReader,
+): Promise<bigint> {
+  const [reportedChainId, latest] = await Promise.all([
+    reader.getChainId(),
+    reader.getLatestBlock(),
+  ]);
+  if (reportedChainId !== input.chainId) {
+    throw new Error(
+      `chain reader reports chainId ${reportedChainId}, input.chainId is ${input.chainId}`,
+    );
+  }
+  return latest.timestamp;
 }
 
 /**
@@ -381,25 +578,37 @@ function engineContext(input: UnderwriteInput, deps: UnderwriteDeps) {
  * The returned evidence never has an `llm` section (the memo step never ran).
  */
 export async function score(
-  input: UnderwriteInput,
-  deps: UnderwriteDeps,
+  rawInput: UnderwriteInput,
+  deps: ScoreDeps,
 ): Promise<ScoreResult> {
+  const input = validateInput(rawInput, deps);
   const { reader, dump } = engineContext(input, deps);
   const progress = freshProgress(dump);
   try {
+    const latestTimestamp = await assertChainIdMatches(input, reader);
+    validateChainTime(input, latestTimestamp);
+
     const stage1 = await runStage1(input, deps, reader, progress);
     if (stage1.kind === "deny") {
-      return { kind: "deny", reasons: stage1.reasons, evidence: stage1.evidence, evidenceHash: stage1.evidenceHash };
+      return {
+        kind: "deny",
+        token: input.token,
+        reasons: stage1.reasons,
+        evidence: stage1.evidence,
+        evidenceHash: stage1.evidenceHash,
+      };
     }
     return {
       kind: "eligible",
+      token: input.token,
       terms: stage1.computedTerms,
       evidence: stage1.evidence,
       evidenceHash: stage1.evidenceHash,
     };
   } catch (err) {
-    const { evidence, evidenceHash: hash } = buildDataUnavailableEvidence(input, progress, err);
-    return { kind: "deny", reasons: ["data_unavailable"], evidence, evidenceHash: hash };
+    if (err instanceof InvalidUnderwriteInput) throw err;
+    const deny = buildDataUnavailableDeny(input, progress, err);
+    return { kind: "deny", token: input.token, reasons: deny.reasons, evidence: deny.evidence, evidenceHash: deny.evidenceHash };
   }
 }
 
@@ -409,12 +618,16 @@ export async function score(
  * approval, or an unexpected thrown error — returns evidence and its hash.
  */
 export async function underwrite(
-  input: UnderwriteInput,
+  rawInput: UnderwriteInput,
   deps: UnderwriteDeps,
 ): Promise<Decision> {
+  const input = validateInput(rawInput, deps);
   const { reader, dump } = engineContext(input, deps);
   const progress = freshProgress(dump);
   try {
+    const latestTimestamp = await assertChainIdMatches(input, reader);
+    validateChainTime(input, latestTimestamp);
+
     const stage1 = await runStage1(input, deps, reader, progress);
     if (stage1.kind === "deny") {
       return {
@@ -429,8 +642,8 @@ export async function underwrite(
     const untrustedTokenMetadata: UntrustedTokenMetadata = {
       name: stage1.tokenName,
       symbol: stage1.tokenSymbol,
-      // Bankr's token-fees response carries no description field — leave it empty
-      // rather than fabricating one.
+      // Neither Bankr's token-fees response nor Airlock's AssetData carries a
+      // description field — leave it empty rather than fabricating one.
       description: "",
     };
 
@@ -501,7 +714,7 @@ export async function underwrite(
       drawLimit: merged.terms.drawLimit,
       drawPeriod: BigInt(merged.terms.drawPeriod),
       gracePeriod: BigInt(merged.terms.gracePeriod),
-      deadline: BigInt(input.now) + DEADLINE_WINDOW_SECONDS,
+      deadline: latestTimestamp + DEADLINE_WINDOW_SECONDS,
       nonce: randomNonce128(),
       memoHash: finalHash,
     };
@@ -521,13 +734,14 @@ export async function underwrite(
       evidence: finalEvidence,
     };
   } catch (err) {
-    const { evidence, evidenceHash: hash } = buildDataUnavailableEvidence(input, progress, err);
+    if (err instanceof InvalidUnderwriteInput) throw err;
+    const deny = buildDataUnavailableDeny(input, progress, err);
     return {
       kind: "deny",
       token: input.token,
-      reasons: ["data_unavailable"],
-      evidence,
-      evidenceHash: hash,
+      reasons: deny.reasons,
+      evidence: deny.evidence,
+      evidenceHash: deny.evidenceHash,
     };
   }
 }

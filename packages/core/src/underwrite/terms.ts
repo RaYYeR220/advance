@@ -141,7 +141,10 @@ function assertNonNegativeInputs(rev: RevenueWindows, quality: Quality): void {
  * non-integer draw/grace period would otherwise produce a nonsensical `TermSheet`, and
  * a hard ceiling above the mainnet pilot's $25 cap would silently blow past the
  * program's own risk limit. */
-function assertUsableEnv(env: UnderwritingEnv): void {
+/** Exported so callers (the engine's up-front input validation) can reject a bad env
+ * before doing any paid work, using the exact same rule `computeTerms` itself enforces —
+ * rather than a second, potentially-diverging copy of the same checks. */
+export function assertUsableEnv(env: UnderwritingEnv): void {
   for (const [name, value] of [
     ["drawPeriodSeconds", env.drawPeriodSeconds],
     ["gracePeriodSeconds", env.gracePeriodSeconds],

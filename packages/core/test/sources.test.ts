@@ -296,7 +296,7 @@ describe("ChainReader (fixture-backed, Ratspeak)", () => {
 
   it("pool status is Locked and the assigned hook isn't graduation-enabled (recorded live from the real Base deployment)", async () => {
     const reader = createFixtureChainReader(ratspeakChain);
-    const status = await reader.getPoolStatus(RATSPEAK_FEES_MANAGER, RATSPEAK_TOKEN);
+    const status = await reader.getAssetState(RATSPEAK_FEES_MANAGER, RATSPEAK_TOKEN);
     expect(status.status).toBe(2); // Locked
     expect(status.dopplerHook.toLowerCase()).toBe(
       "0xbf4195ab0b03e1eb3345dd1e83bed7650b1ed123",

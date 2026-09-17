@@ -3,6 +3,7 @@ import type { Address, Hex } from "viem";
 import { keccak256 } from "viem";
 import type { LlmMessage } from "../llm.js";
 import type { ChainFixture } from "../sources/chain.js";
+import type { DiscoveryResult } from "../sources/discovery.js";
 import type { Quality } from "./quality.js";
 import type { RevenueWindows } from "./revenue.js";
 import type { DenyReason } from "./rules.js";
@@ -55,9 +56,19 @@ export interface EvidenceBundle {
   };
   finalTerms: ComputedTerms;
   /** Present only for a `data_unavailable` decision: the thrown error's message, with any
-   * `http(s)://` URL redacted (an RPC URL must never end up here) — never the raw error
-   * object, and never an API key. */
+   * `http(s)://`/`ws(s)://` URL redacted (an RPC URL must never end up here) — never the
+   * raw error object, and never an API key. */
   error?: string;
+  /**
+   * Present only when more than one discovery source was consulted for this token (Base
+   * mainnet always cross-checks Bankr against the on-chain Airlock source) — both raw
+   * views, so a cross-check mismatch (`data_unavailable`) is auditable rather than a bare
+   * reason code.
+   */
+  discovery?: {
+    bankr?: DiscoveryResult;
+    airlock?: DiscoveryResult;
+  };
 }
 
 export interface BuildEvidenceParams {
@@ -74,6 +85,7 @@ export interface BuildEvidenceParams {
   llm?: { requestMessages: LlmMessage[]; rawResponseText: string | undefined };
   finalTerms: ComputedTerms;
   error?: string;
+  discovery?: { bankr?: DiscoveryResult; airlock?: DiscoveryResult };
 }
 
 /** Assembles an `EvidenceBundle` from already-computed pieces. Pure — makes no chain or
@@ -106,6 +118,7 @@ export function buildEvidence(params: BuildEvidenceParams): EvidenceBundle {
     llm: params.llm,
     finalTerms: params.finalTerms,
     error: params.error,
+    discovery: params.discovery,
   };
 }
 

@@ -1,5 +1,11 @@
 import type { Address, Hex } from "viem";
-import type { ChainOps, RawSwapLog } from "./chainOps.js";
+import type {
+  AirlockAssetData,
+  AssetStateRaw,
+  ChainOps,
+  LockBeneficiary,
+  RawSwapLog,
+} from "./chainOps.js";
 
 /** JSON-safe encoding of `RawSwapLog` (bigints as decimal strings). */
 export interface RawSwapLogJson {
@@ -13,6 +19,30 @@ export interface RawSwapLogJson {
   blockNumber: string;
   transactionHash: Hex;
   logIndex: number;
+}
+
+/** JSON-safe `AssetStateRaw` (numbers/addresses only — nothing to convert, kept as its own
+ * type so a fixture-shape change here is caught even if `AssetStateRaw` doesn't move). */
+export type AssetStateJson = AssetStateRaw;
+
+/** JSON-safe `LockBeneficiary` (shares as a decimal string). */
+export interface LockBeneficiaryJson {
+  beneficiary: Address;
+  shares: string;
+}
+
+/** JSON-safe `AirlockAssetData` (bigints as decimal strings). */
+export interface AirlockAssetDataJson {
+  numeraire: Address;
+  timelock: Address;
+  governance: Address;
+  liquidityMigrator: Address;
+  poolInitializer: Address;
+  pool: Address;
+  migrationPool: Address;
+  numTokensToSell: string;
+  totalSupply: string;
+  integrator: Address;
 }
 
 /**
@@ -49,10 +79,16 @@ export interface ChainFixture {
     roundData: Record<string, [string, string, string, string, string]>;
     /** `${feed}:${block}` -> the feed's `decimals()` (small uint8, plain number). */
     decimals: Record<string, number>;
-    /** `${feesManager}:${asset}` -> `[status, dopplerHook]` from `getState(asset)`. */
-    poolStatus: Record<string, [number, Address]>;
+    /** `${feesManager}:${asset}` -> status/dopplerHook/poolKey from `getState(asset)`. */
+    assetState: Record<string, AssetStateJson>;
     /** `${feesManager}:${dopplerHook}` -> `isDopplerHookEnabled` flags (decimal string). */
     dopplerHookFlags: Record<string, string>;
+    /** `${feesManager}:${asset}` -> the `Lock` event's beneficiary list. */
+    lockBeneficiaries: Record<string, LockBeneficiaryJson[]>;
+    /** `${airlock}:${asset}` -> `Airlock.getAssetData(asset)`. */
+    airlockAssetData: Record<string, AirlockAssetDataJson>;
+    /** `eth_chainId` — at most one recorded value per fixture. */
+    chainId?: number;
   };
 }
 
@@ -78,9 +114,18 @@ function emptyCalls(): ChainFixture["calls"] {
     transactions: {},
     roundData: {},
     decimals: {},
-    poolStatus: {},
+    assetState: {},
     dopplerHookFlags: {},
+    lockBeneficiaries: {},
+    airlockAssetData: {},
   };
+}
+
+/** Joins key parts and lowercases the whole thing, so every fixture lookup is
+ * casing-independent regardless of how an address argument (or a past recording) was
+ * cased — addresses aren't case-sensitive on-chain and fixture keys shouldn't be either. */
+function key(...parts: Array<string | number | bigint>): string {
+  return parts.map(String).join(":").toLowerCase();
 }
 
 function swapLogKey(
@@ -90,7 +135,7 @@ function swapLogKey(
   toBlock: bigint,
   cap: number,
 ): string {
-  return `${poolManager}:${poolId}:${fromBlock}-${toBlock}:cap=${cap}`;
+  return `${poolManager}:${poolId}:${fromBlock}-${toBlock}:cap=${cap}`.toLowerCase();
 }
 
 function toRawSwapLog(json: RawSwapLogJson): RawSwapLog {
@@ -123,12 +168,42 @@ function toRawSwapLogJson(log: RawSwapLog): RawSwapLogJson {
   };
 }
 
+function toAirlockAssetDataJson(data: AirlockAssetData): AirlockAssetDataJson {
+  return {
+    numeraire: data.numeraire,
+    timelock: data.timelock,
+    governance: data.governance,
+    liquidityMigrator: data.liquidityMigrator,
+    poolInitializer: data.poolInitializer,
+    pool: data.pool,
+    migrationPool: data.migrationPool,
+    numTokensToSell: data.numTokensToSell.toString(),
+    totalSupply: data.totalSupply.toString(),
+    integrator: data.integrator,
+  };
+}
+
+function toAirlockAssetData(json: AirlockAssetDataJson): AirlockAssetData {
+  return {
+    numeraire: json.numeraire,
+    timelock: json.timelock,
+    governance: json.governance,
+    liquidityMigrator: json.liquidityMigrator,
+    poolInitializer: json.poolInitializer,
+    pool: json.pool,
+    migrationPool: json.migrationPool,
+    numTokensToSell: BigInt(json.numTokensToSell),
+    totalSupply: BigInt(json.totalSupply),
+    integrator: json.integrator,
+  };
+}
+
 /** Fixture-backed `ChainOps`: never touches the network, throws loudly on any unrecorded call. */
 export function createFixtureChainOps(fixture: ChainFixture): ChainOps {
   const { calls } = fixture;
   let latestBlockNumber: bigint | undefined;
-  for (const key of Object.keys(calls.blocks)) {
-    const n = BigInt(key);
+  for (const blockKey of Object.keys(calls.blocks)) {
+    const n = BigInt(blockKey);
     if (latestBlockNumber === undefined || n > latestBlockNumber) {
       latestBlockNumber = n;
     }
@@ -143,64 +218,65 @@ export function createFixtureChainOps(fixture: ChainFixture): ChainOps {
     },
 
     async getBlockTimestamp(block) {
-      const key = block.toString();
-      const ts = calls.blocks[key];
-      if (ts === undefined) throw new FixtureMissError("getBlockTimestamp", key);
+      const k = block.toString();
+      const ts = calls.blocks[k];
+      if (ts === undefined) throw new FixtureMissError("getBlockTimestamp", k);
       return BigInt(ts);
     },
 
     async getCode(address, block) {
-      const key = `${address}:${block}`;
-      const code = calls.codes[key];
-      if (code === undefined) throw new FixtureMissError("getCode", key);
+      const k = key(address, block);
+      const code = calls.codes[k];
+      if (code === undefined) throw new FixtureMissError("getCode", k);
       return code as Hex;
     },
 
     async getPoolKeyRaw(feesManager, poolId) {
-      const key = `${feesManager}:${poolId}`;
-      const entry = calls.poolKeys[key];
-      if (!entry) throw new FixtureMissError("getPoolKeyRaw", key);
+      const k = key(feesManager, poolId);
+      const entry = calls.poolKeys[k];
+      if (!entry) throw new FixtureMissError("getPoolKeyRaw", k);
       return entry;
     },
 
     async getShares(feesManager, poolId, beneficiary) {
-      const key = `${feesManager}:${poolId}:${beneficiary}`;
-      const entry = calls.shares[key];
-      if (entry === undefined) throw new FixtureMissError("getShares", key);
+      const k = key(feesManager, poolId, beneficiary);
+      const entry = calls.shares[k];
+      if (entry === undefined) throw new FixtureMissError("getShares", k);
       return BigInt(entry);
     },
 
     async getCumulatedFees(feesManager, poolId, index, block) {
-      const key = `${feesManager}:${poolId}:${index}:${block}`;
-      const entry = calls.cumulatedFees[key];
-      if (entry === undefined) throw new FixtureMissError("getCumulatedFees", key);
+      const k = key(feesManager, poolId, index, block);
+      const entry = calls.cumulatedFees[k];
+      if (entry === undefined) throw new FixtureMissError("getCumulatedFees", k);
       return BigInt(entry);
     },
 
     async getUncollectedFees(feesManager, poolId, block) {
-      const key = `${feesManager}:${poolId}:${block}`;
-      const entry = calls.uncollectedFees[key];
-      if (!entry) throw new FixtureMissError("getUncollectedFees", key);
+      const k = key(feesManager, poolId, block);
+      const entry = calls.uncollectedFees[k];
+      if (!entry) throw new FixtureMissError("getUncollectedFees", k);
       return [BigInt(entry[0]), BigInt(entry[1])];
     },
 
     async getSwapLogs(poolManager, poolId, fromBlock, toBlock, cap) {
-      const key = swapLogKey(poolManager, poolId, fromBlock, toBlock, cap);
-      const entry = calls.swapLogs[key];
-      if (!entry) throw new FixtureMissError("getSwapLogs", key);
+      const k = swapLogKey(poolManager, poolId, fromBlock, toBlock, cap);
+      const entry = calls.swapLogs[k];
+      if (!entry) throw new FixtureMissError("getSwapLogs", k);
       return entry.map(toRawSwapLog);
     },
 
     async getTransactionSender(hash) {
-      const entry = calls.transactions[hash];
-      if (!entry) throw new FixtureMissError("getTransactionSender", hash);
+      const k = hash.toLowerCase();
+      const entry = calls.transactions[k];
+      if (!entry) throw new FixtureMissError("getTransactionSender", k);
       return entry;
     },
 
     async getLatestRoundData(feed, block) {
-      const key = `${feed}:${block}`;
-      const entry = calls.roundData[key];
-      if (!entry) throw new FixtureMissError("getLatestRoundData", key);
+      const k = key(feed, block);
+      const entry = calls.roundData[k];
+      if (!entry) throw new FixtureMissError("getLatestRoundData", k);
       return [
         BigInt(entry[0]),
         BigInt(entry[1]),
@@ -211,24 +287,45 @@ export function createFixtureChainOps(fixture: ChainFixture): ChainOps {
     },
 
     async getFeedDecimals(feed, block) {
-      const key = `${feed}:${block}`;
-      const entry = calls.decimals[key];
-      if (entry === undefined) throw new FixtureMissError("getFeedDecimals", key);
+      const k = key(feed, block);
+      const entry = calls.decimals[k];
+      if (entry === undefined) throw new FixtureMissError("getFeedDecimals", k);
       return entry;
     },
 
-    async getPoolStatusRaw(feesManager, asset) {
-      const key = `${feesManager}:${asset}`;
-      const entry = calls.poolStatus[key];
-      if (!entry) throw new FixtureMissError("getPoolStatusRaw", key);
+    async getAssetStateRaw(feesManager, asset) {
+      const k = key(feesManager, asset);
+      const entry = calls.assetState[k];
+      if (!entry) throw new FixtureMissError("getAssetStateRaw", k);
       return entry;
     },
 
     async getDopplerHookFlags(feesManager, dopplerHook) {
-      const key = `${feesManager}:${dopplerHook}`;
-      const entry = calls.dopplerHookFlags[key];
-      if (entry === undefined) throw new FixtureMissError("getDopplerHookFlags", key);
+      const k = key(feesManager, dopplerHook);
+      const entry = calls.dopplerHookFlags[k];
+      if (entry === undefined) throw new FixtureMissError("getDopplerHookFlags", k);
       return BigInt(entry);
+    },
+
+    async getChainId() {
+      if (calls.chainId === undefined) {
+        throw new FixtureMissError("getChainId", "(not recorded)");
+      }
+      return calls.chainId;
+    },
+
+    async getLockBeneficiaries(feesManager, asset) {
+      const k = key(feesManager, asset);
+      const entry = calls.lockBeneficiaries[k];
+      if (!entry) throw new FixtureMissError("getLockBeneficiaries", k);
+      return entry.map((b) => ({ beneficiary: b.beneficiary, shares: BigInt(b.shares) }));
+    },
+
+    async getAirlockAssetData(airlock, asset) {
+      const k = key(airlock, asset);
+      const entry = calls.airlockAssetData[k];
+      if (!entry) throw new FixtureMissError("getAirlockAssetData", k);
+      return toAirlockAssetData(entry);
     },
   };
 }
@@ -261,20 +358,19 @@ export function createRecordingChainOps(
       // (see `hasCodeAt` in chainLogic.ts) — the real bytecode can be tens of KB per
       // call and there's nothing to gain from persisting it verbatim. Store a 1-byte
       // non-"0x" placeholder for "has code" and the real "0x" for "no code yet".
-      calls.codes[`${address}:${block}`] = code.toLowerCase() === "0x" ? "0x" : "0x01";
+      calls.codes[key(address, block)] = code.toLowerCase() === "0x" ? "0x" : "0x01";
       return code;
     },
 
     async getPoolKeyRaw(feesManager, poolId) {
       const result = await live.getPoolKeyRaw(feesManager, poolId);
-      calls.poolKeys[`${feesManager}:${poolId}`] = result;
+      calls.poolKeys[key(feesManager, poolId)] = result;
       return result;
     },
 
     async getShares(feesManager, poolId, beneficiary) {
       const result = await live.getShares(feesManager, poolId, beneficiary);
-      calls.shares[`${feesManager}:${poolId}:${beneficiary}`] =
-        result.toString();
+      calls.shares[key(feesManager, poolId, beneficiary)] = result.toString();
       return result;
     },
 
@@ -285,14 +381,13 @@ export function createRecordingChainOps(
         index,
         block,
       );
-      calls.cumulatedFees[`${feesManager}:${poolId}:${index}:${block}`] =
-        result.toString();
+      calls.cumulatedFees[key(feesManager, poolId, index, block)] = result.toString();
       return result;
     },
 
     async getUncollectedFees(feesManager, poolId, block) {
       const result = await live.getUncollectedFees(feesManager, poolId, block);
-      calls.uncollectedFees[`${feesManager}:${poolId}:${block}`] = [
+      calls.uncollectedFees[key(feesManager, poolId, block)] = [
         result[0].toString(),
         result[1].toString(),
       ];
@@ -330,13 +425,13 @@ export function createRecordingChainOps(
 
     async getTransactionSender(hash) {
       const result = await live.getTransactionSender(hash);
-      calls.transactions[hash] = result;
+      calls.transactions[hash.toLowerCase()] = result;
       return result;
     },
 
     async getLatestRoundData(feed, block) {
       const result = await live.getLatestRoundData(feed, block);
-      calls.roundData[`${feed}:${block}`] = [
+      calls.roundData[key(feed, block)] = [
         result[0].toString(),
         result[1].toString(),
         result[2].toString(),
@@ -348,19 +443,40 @@ export function createRecordingChainOps(
 
     async getFeedDecimals(feed, block) {
       const result = await live.getFeedDecimals(feed, block);
-      calls.decimals[`${feed}:${block}`] = result;
+      calls.decimals[key(feed, block)] = result;
       return result;
     },
 
-    async getPoolStatusRaw(feesManager, asset) {
-      const result = await live.getPoolStatusRaw(feesManager, asset);
-      calls.poolStatus[`${feesManager}:${asset}`] = result;
+    async getAssetStateRaw(feesManager, asset) {
+      const result = await live.getAssetStateRaw(feesManager, asset);
+      calls.assetState[key(feesManager, asset)] = result;
       return result;
     },
 
     async getDopplerHookFlags(feesManager, dopplerHook) {
       const result = await live.getDopplerHookFlags(feesManager, dopplerHook);
-      calls.dopplerHookFlags[`${feesManager}:${dopplerHook}`] = result.toString();
+      calls.dopplerHookFlags[key(feesManager, dopplerHook)] = result.toString();
+      return result;
+    },
+
+    async getChainId() {
+      const result = await live.getChainId();
+      calls.chainId = result;
+      return result;
+    },
+
+    async getLockBeneficiaries(feesManager, asset) {
+      const result = await live.getLockBeneficiaries(feesManager, asset);
+      calls.lockBeneficiaries[key(feesManager, asset)] = result.map((b) => ({
+        beneficiary: b.beneficiary,
+        shares: b.shares.toString(),
+      }));
+      return result;
+    },
+
+    async getAirlockAssetData(airlock, asset) {
+      const result = await live.getAirlockAssetData(airlock, asset);
+      calls.airlockAssetData[key(airlock, asset)] = toAirlockAssetDataJson(result);
       return result;
     },
   };
@@ -368,11 +484,17 @@ export function createRecordingChainOps(
   return {
     ops,
     dump(): ChainFixture {
+      // Deep-copy the snapshot: sibling `Promise.all` reads keep mutating the live
+      // `calls` object after a caller has already taken a decision off an earlier
+      // `dump()` (e.g. one read throws while others are still in flight) — without this,
+      // an evidence bundle built from a `dump()` result can silently change underneath
+      // its own already-computed `evidenceHash` as those in-flight reads settle and
+      // record themselves into the same object.
       return {
         token: meta.token,
         chainId: meta.chainId,
         recordedAt: new Date().toISOString(),
-        calls,
+        calls: structuredClone(calls),
       };
     },
   };

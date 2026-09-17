@@ -6,9 +6,34 @@ import {
   createPublicClient,
   http,
 } from "viem";
+import { airlockAbi } from "../abis/airlock.js";
 import { chainlinkAggregatorAbi } from "../abis/chainlinkAggregator.js";
-import { feesManagerAbi } from "../abis/feesManager.js";
+import { feesManagerAbi, feesManagerLockEventAbi } from "../abis/feesManager.js";
 import { poolManagerSwapEventAbi } from "../abis/poolManager.js";
+
+export interface AssetStateRaw {
+  status: number;
+  dopplerHook: Address;
+  poolKey: [Address, Address, number, number, Address];
+}
+
+export interface LockBeneficiary {
+  beneficiary: Address;
+  shares: bigint;
+}
+
+export interface AirlockAssetData {
+  numeraire: Address;
+  timelock: Address;
+  governance: Address;
+  liquidityMigrator: Address;
+  poolInitializer: Address;
+  pool: Address;
+  migrationPool: Address;
+  numTokensToSell: bigint;
+  totalSupply: bigint;
+  integrator: Address;
+}
 
 /** Simulated caller for the zero-share `collectFees` read (Spike 4 semantics). */
 export const ZERO_SHARE_ADDRESS: Address =
@@ -104,13 +129,26 @@ export interface ChainOps {
   /** `eth_call decimals()` on a Chainlink aggregator, so the decimals guard in
    * `computeRevenue` checks a real on-chain read rather than an assumed constant. */
   getFeedDecimals(feed: Address, block: bigint): Promise<number>;
-  /** `DopplerHookInitializer.getState(asset)` -> `[status, dopplerHook]` (the two fields
-   * pool-eligibility needs; see `feesManagerAbi`'s `getState` entry for the full decode
-   * shape). Not block-pinned — like `getShares`/`getPoolKeyRaw`, this is a "what's the
-   * pool's status right now" read, not part of a historical revenue window. */
-  getPoolStatusRaw(feesManager: Address, asset: Address): Promise<[number, Address]>;
+  /** `DopplerHookInitializer.getState(asset)` -> status, dopplerHook, and the full
+   * `poolKey` (used both for pool eligibility and to bind the discovered `poolId` to the
+   * token: `poolId` must equal `keccak256(abi.encode(poolKey))`). Not block-pinned — like
+   * `getShares`/`getPoolKeyRaw`, this is a "what's true right now" read. */
+  getAssetStateRaw(feesManager: Address, asset: Address): Promise<AssetStateRaw>;
   /** `DopplerHookInitializer.isDopplerHookEnabled(dopplerHook)` -> raw flags bitmask. */
   getDopplerHookFlags(feesManager: Address, dopplerHook: Address): Promise<bigint>;
+  /** `eth_chainId` — used to guard against a `ChainReader` wired to the wrong network. */
+  getChainId(): Promise<number>;
+  /** `DopplerHookInitializer`'s `Lock` event for `asset`, decoded — the on-chain source of
+   * "who are the beneficiaries and what are their shares" (`getState`'s default getter
+   * can't return this: it's a dynamic array field). Used by the Airlock discovery source
+   * to pick a creator without depending on Bankr. */
+  getLockBeneficiaries(
+    feesManager: Address,
+    asset: Address,
+  ): Promise<LockBeneficiary[]>;
+  /** `Airlock.getAssetData(asset)` — the on-chain discovery source, cross-checked against
+   * (or, off Base mainnet, used instead of) Bankr. */
+  getAirlockAssetData(airlock: Address, asset: Address): Promise<AirlockAssetData>;
 }
 
 /** Live `ChainOps` backed by an archive-capable JSON-RPC endpoint. */
@@ -243,14 +281,24 @@ export function createLiveChainOps(rpcUrl: string): ChainOps {
       });
     },
 
-    async getPoolStatusRaw(feesManager, asset) {
-      const [, , dopplerHook, , status] = await client.readContract({
+    async getAssetStateRaw(feesManager, asset) {
+      const [, , dopplerHook, , status, poolKey] = await client.readContract({
         address: feesManager,
         abi: feesManagerAbi,
         functionName: "getState",
         args: [asset],
       });
-      return [status, dopplerHook];
+      return {
+        status,
+        dopplerHook,
+        poolKey: [
+          poolKey.currency0,
+          poolKey.currency1,
+          poolKey.fee,
+          poolKey.tickSpacing,
+          poolKey.hooks,
+        ],
+      };
     },
 
     async getDopplerHookFlags(feesManager, dopplerHook) {
@@ -260,6 +308,58 @@ export function createLiveChainOps(rpcUrl: string): ChainOps {
         functionName: "isDopplerHookEnabled",
         args: [dopplerHook],
       });
+    },
+
+    async getChainId() {
+      return client.getChainId();
+    },
+
+    async getLockBeneficiaries(feesManager, asset) {
+      const logs = await client.getLogs({
+        address: feesManager,
+        event: feesManagerLockEventAbi[0],
+        args: { asset },
+        fromBlock: 0n,
+        toBlock: "latest",
+      });
+      return logs.flatMap((log) =>
+        (log.args.beneficiaries ?? []).map((b) => ({
+          beneficiary: b.beneficiary,
+          shares: b.shares,
+        })),
+      );
+    },
+
+    async getAirlockAssetData(airlock, asset) {
+      const [
+        numeraire,
+        timelock,
+        governance,
+        liquidityMigrator,
+        poolInitializer,
+        pool,
+        migrationPool,
+        numTokensToSell,
+        totalSupply,
+        integrator,
+      ] = await client.readContract({
+        address: airlock,
+        abi: airlockAbi,
+        functionName: "getAssetData",
+        args: [asset],
+      });
+      return {
+        numeraire,
+        timelock,
+        governance,
+        liquidityMigrator,
+        poolInitializer,
+        pool,
+        migrationPool,
+        numTokensToSell,
+        totalSupply,
+        integrator,
+      };
     },
   };
 }

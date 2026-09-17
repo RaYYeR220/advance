@@ -49,10 +49,16 @@ function fakeOps(overrides: Partial<ChainOps>): ChainOps {
       notImplemented("getLatestRoundData")) as ChainOps["getLatestRoundData"],
     getFeedDecimals: (overrides.getFeedDecimals ??
       notImplemented("getFeedDecimals")) as ChainOps["getFeedDecimals"],
-    getPoolStatusRaw: (overrides.getPoolStatusRaw ??
-      notImplemented("getPoolStatusRaw")) as ChainOps["getPoolStatusRaw"],
+    getAssetStateRaw: (overrides.getAssetStateRaw ??
+      notImplemented("getAssetStateRaw")) as ChainOps["getAssetStateRaw"],
     getDopplerHookFlags: (overrides.getDopplerHookFlags ??
       notImplemented("getDopplerHookFlags")) as ChainOps["getDopplerHookFlags"],
+    getChainId: (overrides.getChainId ??
+      notImplemented("getChainId")) as ChainOps["getChainId"],
+    getLockBeneficiaries: (overrides.getLockBeneficiaries ??
+      notImplemented("getLockBeneficiaries")) as ChainOps["getLockBeneficiaries"],
+    getAirlockAssetData: (overrides.getAirlockAssetData ??
+      notImplemented("getAirlockAssetData")) as ChainOps["getAirlockAssetData"],
   };
 }
 
@@ -186,23 +192,31 @@ describe("blockAt: genesis boundary", () => {
   });
 });
 
-describe("getPoolStatus / isPoolEligibleForEscrow", () => {
+describe("getAssetState / isPoolEligibleForEscrow", () => {
   const FEES_MANAGER: Address = "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544";
   const ASSET: Address = "0x1111111111111111111111111111111111111111";
   const HOOK: Address = "0x2222222222222222222222222222222222222222";
   const ZERO_ADDRESS: Address = "0x0000000000000000000000000000000000000000";
+  const WETH: Address = "0x4200000000000000000000000000000000000006";
+  const FAKE_POOL_KEY: [Address, Address, number, number, Address] = [
+    WETH,
+    ASSET,
+    8388608,
+    200,
+    FEES_MANAGER,
+  ];
 
   it("Locked status, no hook -> eligible", async () => {
     const ops = fakeOps({
-      async getPoolStatusRaw() {
-        return [2, ZERO_ADDRESS];
+      async getAssetStateRaw() {
+        return { status: 2, dopplerHook: ZERO_ADDRESS, poolKey: FAKE_POOL_KEY };
       },
       getDopplerHookFlags: notImplemented(
         "getDopplerHookFlags",
       ) as ChainOps["getDopplerHookFlags"], // never called: no hook set
     });
     const reader = buildChainReader(ops);
-    const info = await reader.getPoolStatus(FEES_MANAGER, ASSET);
+    const info = await reader.getAssetState(FEES_MANAGER, ASSET);
     expect(info.status).toBe(2);
     expect(info.hookAllowsGraduation).toBe(false);
     expect(isPoolEligibleForEscrow(info)).toBe(true);
@@ -210,46 +224,69 @@ describe("getPoolStatus / isPoolEligibleForEscrow", () => {
 
   it("Locked status, hook set but ON_GRADUATION_FLAG not set -> eligible", async () => {
     const ops = fakeOps({
-      async getPoolStatusRaw() {
-        return [2, HOOK];
+      async getAssetStateRaw() {
+        return { status: 2, dopplerHook: HOOK, poolKey: FAKE_POOL_KEY };
       },
       async getDopplerHookFlags() {
         return 3n; // ON_INITIALIZATION_FLAG | ON_SWAP_FLAG, no graduation bit
       },
     });
     const reader = buildChainReader(ops);
-    const info = await reader.getPoolStatus(FEES_MANAGER, ASSET);
+    const info = await reader.getAssetState(FEES_MANAGER, ASSET);
     expect(info.hookAllowsGraduation).toBe(false);
     expect(isPoolEligibleForEscrow(info)).toBe(true);
   });
 
   it("Locked status, hook with ON_GRADUATION_FLAG set -> not eligible (pool_not_locked)", async () => {
     const ops = fakeOps({
-      async getPoolStatusRaw() {
-        return [2, HOOK];
+      async getAssetStateRaw() {
+        return { status: 2, dopplerHook: HOOK, poolKey: FAKE_POOL_KEY };
       },
       async getDopplerHookFlags() {
         return 7n; // includes ON_GRADUATION_FLAG (1<<2)
       },
     });
     const reader = buildChainReader(ops);
-    const info = await reader.getPoolStatus(FEES_MANAGER, ASSET);
+    const info = await reader.getAssetState(FEES_MANAGER, ASSET);
     expect(info.hookAllowsGraduation).toBe(true);
     expect(isPoolEligibleForEscrow(info)).toBe(false);
   });
 
   it("non-Locked status (e.g. Graduated) -> not eligible even with no hook", async () => {
     const ops = fakeOps({
-      async getPoolStatusRaw() {
-        return [3, ZERO_ADDRESS]; // Graduated
+      async getAssetStateRaw() {
+        return { status: 3, dopplerHook: ZERO_ADDRESS, poolKey: FAKE_POOL_KEY }; // Graduated
       },
       getDopplerHookFlags: notImplemented(
         "getDopplerHookFlags",
       ) as ChainOps["getDopplerHookFlags"],
     });
     const reader = buildChainReader(ops);
-    const info = await reader.getPoolStatus(FEES_MANAGER, ASSET);
+    const info = await reader.getAssetState(FEES_MANAGER, ASSET);
     expect(isPoolEligibleForEscrow(info)).toBe(false);
+  });
+
+  it("poolId is keccak256(abi.encode(poolKey)) — matches a known real poolId (Ratspeak)", async () => {
+    const RATSPEAK_POOL_ID: Hex =
+      "0x5e9782079683037fc8bb57625683359d9efaef80f2b829c4bb5b1896c6bb40b6";
+    const ops = fakeOps({
+      async getAssetStateRaw() {
+        return {
+          status: 2,
+          dopplerHook: ZERO_ADDRESS,
+          poolKey: [
+            "0x4200000000000000000000000000000000000006",
+            "0xf1e9Baa65d418A9025e1851DD2D37f1AD208bba3",
+            8388608,
+            200,
+            FEES_MANAGER,
+          ],
+        };
+      },
+    });
+    const reader = buildChainReader(ops);
+    const info = await reader.getAssetState(FEES_MANAGER, ASSET);
+    expect(info.poolId).toBe(RATSPEAK_POOL_ID);
   });
 });
 

@@ -55,9 +55,9 @@ export const feesManagerAbi = [
    * `DopplerHookInitializer`'s auto-generated getter for `mapping(address asset => PoolState
    * state) public getState` (struct fields `beneficiaries`/`adjustedCurves` are dynamic
    * arrays, which Solidity's default struct getter omits; every other field is returned in
-   * declaration order). Compiled and cross-checked against the real Base deployment
-   * (`0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544`) — see the underwriting task-5 report for
-   * the verification trail.
+   * declaration order). Compiled and cross-checked live against the real deployment
+   * (`0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544`, verified present on both Base mainnet and
+   * Base Sepolia).
    */
   {
     type: "function",
@@ -109,6 +109,44 @@ export const feesManagerAbi = [
     inputs: [
       { name: "expected", type: "uint8" },
       { name: "actual", type: "uint8" },
+    ],
+  },
+  /** `MiniV4Manager`'s immutable Uniswap v4 `PoolManager` — read directly rather than
+   * trusted from docs, so the per-chain address in `chains.ts` is verifiable on-chain. */
+  {
+    type: "function",
+    name: "poolManager",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+] as const;
+
+/**
+ * `DopplerHookInitializer`'s `Lock` event, emitted once when a pool locks, carrying the
+ * full beneficiary list (including the majority "creator" share) that `getState`'s
+ * auto-generated getter can't return (it's a dynamic array field). Signature verified
+ * live: `cast sig-event "Lock(address,(address,uint96)[])"` matches the real emitted
+ * topic0. The indexed param is the asset/token address despite the source comment
+ * calling it "pool". Kept as its own single-element array (like
+ * `poolManagerSwapEventAbi`) so it can be indexed as `feesManagerLockEventAbi[0]` for
+ * `getLogs`'s `event` argument.
+ */
+export const feesManagerLockEventAbi = [
+  {
+    type: "event",
+    name: "Lock",
+    inputs: [
+      { name: "asset", type: "address", indexed: true },
+      {
+        name: "beneficiaries",
+        type: "tuple[]",
+        indexed: false,
+        components: [
+          { name: "beneficiary", type: "address" },
+          { name: "shares", type: "uint96" },
+        ],
+      },
     ],
   },
 ] as const;

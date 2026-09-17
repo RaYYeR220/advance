@@ -11,12 +11,15 @@ export type {
   CreatorRevenueWindow,
   EthUsdPrice,
   TokenCreatedAt,
-  PoolStatusInfo,
+  AssetState,
 } from "./chainLogic.js";
 export {
   BlockAtBeforeGenesisError,
   isPoolEligibleForEscrow,
+  computePoolId,
+  pickMajorityBeneficiary,
   POOL_STATUS_LOCKED,
+  ZERO_ADDRESS,
 } from "./chainLogic.js";
 export type { ChainFixture, RawSwapLogJson } from "./chainFixture.js";
 export { FixtureMissError, createFixtureChainOps } from "./chainFixture.js";
@@ -26,6 +29,9 @@ export {
   ZERO_SHARE_ADDRESS,
   type ChainOps,
   type RawSwapLog,
+  type AssetStateRaw,
+  type LockBeneficiary,
+  type AirlockAssetData,
 } from "./chainOps.js";
 export { createRecordingChainOps } from "./chainFixture.js";
 
