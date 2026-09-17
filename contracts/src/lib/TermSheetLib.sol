@@ -46,29 +46,13 @@ library TermSheetLib {
     );
 
     /// @notice Computes the EIP-712 struct hash for a TermSheet.
+    /// @dev Every TermSheet member is a static ABI type (address, uintN, bytes32), so the struct's
+    /// ABI encoding is exactly its members' EIP-712 `encodeData`, one 32-byte word each, in
+    /// declaration order. Encoding the struct as one value keeps the encoder within the EVM stack
+    /// when compiled without the optimizer's inliner (e.g. for coverage).
     /// @param sheet The term sheet to hash.
     /// @return The keccak256 struct hash, to be combined with a domain separator per EIP-712.
     function structHash(TermSheet memory sheet) internal pure returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                TYPEHASH,
-                sheet.agentTreasury,
-                sheet.agentCard,
-                sheet.agentId,
-                sheet.feesManager,
-                sheet.poolId,
-                sheet.expectedShares,
-                sheet.noteSupply,
-                sheet.floorCents,
-                sheet.minPrincipal,
-                sheet.auctionBlocks,
-                sheet.drawLimit,
-                sheet.drawPeriod,
-                sheet.gracePeriod,
-                sheet.deadline,
-                sheet.nonce,
-                sheet.memoHash
-            )
-        );
+        return keccak256(abi.encode(TYPEHASH, sheet));
     }
 }
