@@ -6,12 +6,15 @@ import {CreditLine} from "../../src/CreditLine.sol";
 import {RevenueNote} from "../../src/RevenueNote.sol";
 import {MockERC20, MockAuction, MockHub} from "../utils/Mocks.sol";
 
-/// @notice Bounded-input handler driving `draw` (and period warps) against an already-Active
-/// CreditLine. Ghost state (`maxDrawnInAnyPeriod`, `sumDrawn`) is updated incrementally on every
-/// call so the invariants below stay O(1) instead of re-scanning draw history each check.
+/// @notice Handler driving `draw` (unbounded amount, random caller, wrapped in try/catch so only
+/// successful draws count) and arbitrary-second time warps against an already-Active CreditLine.
+/// The per-period ghost bucket is computed independently of `creditLine.currentPeriod()` (from
+/// `activatedAt`/`drawPeriod` directly), so a bug in that contract function can't hide from the
+/// invariants by consistently mis-bucketing both sides the same way.
 contract CreditLineHandler is Test {
     CreditLine public creditLine;
     address public card;
+    uint64 public immutable ghostDrawPeriod;
 
     /// @dev Per-period cumulative draws, kept for debugging a failing run.
     mapping(uint64 period => uint256 drawn) public drawnInPeriod;
@@ -19,34 +22,50 @@ contract CreditLineHandler is Test {
     uint256 public maxDrawnInAnyPeriod;
     /// @notice Sum of every amount successfully drawn.
     uint256 public sumDrawn;
+    /// @notice Count of draw attempts that succeeded (always by `card`).
+    uint256 public successfulDraws;
 
     constructor(CreditLine creditLine_, address card_) {
         creditLine = creditLine_;
         card = card_;
+        ghostDrawPeriod = creditLine_.drawPeriod();
     }
 
-    /// @notice Draws a bounded amount within the current period's remaining allowance.
-    function draw(uint256 amount) external {
-        uint256 available = creditLine.availableThisPeriod();
-        if (available == 0) return;
-        amount = bound(amount, 1, available);
-
-        uint64 period = creditLine.currentPeriod();
-
-        vm.prank(card);
-        creditLine.draw(amount);
-
-        uint256 newPeriodTotal = drawnInPeriod[period] + amount;
-        drawnInPeriod[period] = newPeriodTotal;
-        if (newPeriodTotal > maxDrawnInAnyPeriod) maxDrawnInAnyPeriod = newPeriodTotal;
-        sumDrawn += amount;
+    /// @dev Computed independently of `creditLine.currentPeriod()`: same formula, but evaluated
+    /// here from raw state rather than by calling into the contract under test.
+    function _ghostPeriod() internal view returns (uint64) {
+        uint64 activatedAt = creditLine.activatedAt();
+        if (activatedAt == 0) return 0;
+        return (uint64(block.timestamp) - activatedAt) / ghostDrawPeriod;
     }
 
-    /// @notice Advances time by a bounded number of whole periods, so multiple periods get
-    /// exercised over the course of a run.
-    function warpPeriods(uint256 periods) external {
-        periods = bound(periods, 0, 5);
-        vm.warp(block.timestamp + periods * creditLine.drawPeriod());
+    /// @notice Attempts a draw of an unbounded amount from a mostly-random caller (only `card`
+    /// can ever succeed). Reverts (wrong caller, zero amount, over the period limit, insufficient
+    /// USDC balance, ...) are swallowed; only a successful draw updates ghost accounting.
+    function draw(uint256 amount, uint256 callerSeed) external {
+        amount = bound(amount, 0, type(uint128).max);
+        address caller =
+            callerSeed % 4 == 0 ? card : address(uint160(uint256(keccak256(abi.encode("attacker", callerSeed)))));
+
+        uint64 period = _ghostPeriod();
+
+        vm.prank(caller);
+        try creditLine.draw(amount) {
+            assertEq(caller, card); // only the card may ever succeed
+            uint256 newPeriodTotal = drawnInPeriod[period] + amount;
+            drawnInPeriod[period] = newPeriodTotal;
+            if (newPeriodTotal > maxDrawnInAnyPeriod) maxDrawnInAnyPeriod = newPeriodTotal;
+            sumDrawn += amount;
+            successfulDraws++;
+        } catch {
+            // Expected: wrong caller, zero amount, over the period limit, or insufficient balance.
+        }
+    }
+
+    /// @notice Advances time by an arbitrary number of seconds (not restricted to whole periods).
+    function warp(uint256 secondsElapsed) external {
+        secondsElapsed = bound(secondsElapsed, 0, 30 days);
+        vm.warp(block.timestamp + secondsElapsed);
     }
 }
 
