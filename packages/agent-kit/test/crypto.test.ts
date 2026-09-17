@@ -53,4 +53,29 @@ describe("encryptShares / decryptShares", () => {
     expect(() => encryptShares({ share: "x" }, "not-hex")).toThrow();
     expect(() => encryptShares({ share: "x" }, "aa")).toThrow();
   });
+
+  it("rejects a 63-char (odd-length, too short) hex key", () => {
+    const tooShort = KEY_A.slice(0, 63);
+    expect(tooShort).toHaveLength(63);
+    expect(() => encryptShares({ share: "x" }, tooShort)).toThrow();
+  });
+
+  it("rejects a 65-char (odd-length) hex key instead of silently truncating to 32 bytes", () => {
+    // Buffer.from(str, "hex") silently drops a trailing unpaired hex digit,
+    // so a naive `decoded.length !== 32` check would let this slip through
+    // as if it were KEY_A - decodeKey must reject based on the source
+    // string's length, not the decoded buffer's length.
+    const oneDigitTooLong = KEY_A + "1";
+    expect(oneDigitTooLong).toHaveLength(65);
+    expect(() => encryptShares({ share: "x" }, oneDigitTooLong)).toThrow();
+
+    const encrypted = encryptShares({ share: "secret" }, KEY_A);
+    expect(() => decryptShares(encrypted, oneDigitTooLong)).toThrow();
+  });
+
+  it("rejects a 66-char (even-length, too long) hex key", () => {
+    const tooLong = KEY_A + "11";
+    expect(tooLong).toHaveLength(66);
+    expect(() => encryptShares({ share: "x" }, tooLong)).toThrow();
+  });
 });

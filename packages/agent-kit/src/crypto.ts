@@ -14,15 +14,22 @@ export interface EncryptedPayload {
   ciphertext: string;
 }
 
+const KEY_HEX_CHARS = KEY_BYTES * 2;
+
 function decodeKey(encryptionKeyHex: string): Buffer {
   if (!/^[0-9a-fA-F]+$/.test(encryptionKeyHex)) {
     throw new Error("WALLET_ENCRYPTION_KEY must be a hex string");
   }
-  const key = Buffer.from(encryptionKeyHex, "hex");
-  if (key.length !== KEY_BYTES) {
-    throw new Error(`WALLET_ENCRYPTION_KEY must decode to ${KEY_BYTES} bytes, got ${key.length}`);
+  // Check the *source string's* length before decoding. Buffer.from(str,
+  // "hex") silently drops a trailing unpaired hex digit instead of
+  // throwing, so a 65-char string would otherwise decode to a "valid"
+  // 32-byte buffer and pass a post-decode length check with the wrong key.
+  if (encryptionKeyHex.length !== KEY_HEX_CHARS) {
+    throw new Error(
+      `WALLET_ENCRYPTION_KEY must be exactly ${KEY_HEX_CHARS} hex characters (${KEY_BYTES} bytes), got ${encryptionKeyHex.length}`,
+    );
   }
-  return key;
+  return Buffer.from(encryptionKeyHex, "hex");
 }
 
 /** Encrypts any JSON-serializable value (Dynamic external server key shares). */
