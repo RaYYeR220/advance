@@ -119,6 +119,13 @@ contract AdvanceHubTest is BaseTest {
     bytes32 internal constant POOL_ID_2 = keccak256("agent-pool-2");
     bytes32 internal constant DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    /// @dev Gas a keeper budgets for one `markDefault`, generous against the ~2.4M the call costs
+    /// against the live Base contracts.
+    uint256 internal constant KEEPER_GAS = 3_000_000;
+    /// @dev Revert-data size a hostile fees manager grieves the escrow's close with. Copying it
+    /// costs ~1.3M gas in memory expansion, so an unbounded copy on top of producing it exceeds
+    /// `KEEPER_GAS`, while producing it once fits.
+    uint256 internal constant HOSTILE_REVERT_BYTES = 640_000;
 
     // ---------------------------------------------------------------------------------------
     // helpers
@@ -1551,6 +1558,28 @@ contract AdvanceHubTest is BaseTest {
             loanId, address(escrow), abi.encodeWithSelector(MockFeesManager.NativeTransferFailed.selector)
         );
         hub.markDefault(loanId);
+
+        _assertStatus(loanId, IAdvance.LoanStatus.Defaulted);
+        assertEq(uint8(_creditLine(loanId).state()), uint8(CreditLine.State.Frozen));
+        assertEq(uint8(escrow.phase()), uint8(RevenueEscrow.Phase.Active));
+        assertEq(_note(loanId).totalRepaid(), CAP_USDC);
+    }
+
+    /// @dev The escrow's close reaches the agent's own fees manager, so its revert data is
+    /// attacker-controlled. A manager that reverts with ~1MB makes an unbounded copy cost more in
+    /// memory expansion than the whole keeper budget, which would leave a delinquent loan
+    /// permanently undefaultable. The hub keeps at most `MAX_REASON_BYTES`, so the default still
+    /// lands well inside `KEEPER_GAS` and only the first 256 bytes reach the event.
+    function test_markDefault_closeIfRepaidHugeRevertStillCompletes() public {
+        uint256 loanId = _openActive(CAP_USDC);
+        _warpPastGrace(loanId);
+        RevenueEscrow escrow = _escrow(loanId);
+        fm.setUpdateBeneficiaryRevertBytes(HOSTILE_REVERT_BYTES);
+
+        vm.expectEmit(address(hub));
+        emit AdvanceHub.CloseAttemptFailed(loanId, address(escrow), new bytes(256));
+        vm.prank(keeper);
+        hub.markDefault{gas: KEEPER_GAS}(loanId);
 
         _assertStatus(loanId, IAdvance.LoanStatus.Defaulted);
         assertEq(uint8(_creditLine(loanId).state()), uint8(CreditLine.State.Frozen));

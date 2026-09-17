@@ -441,6 +441,8 @@ contract MockFeesManager is IDopplerFeesManager {
     bool internal _locked;
     bool public collectReverts;
     bool public updateBeneficiaryReverts;
+    /// @notice Size, in bytes, of the revert data `updateBeneficiary` throws (0 = the short revert).
+    uint256 public updateBeneficiaryRevertBytes;
 
     event Release(bytes32 indexed poolId, address indexed beneficiary, uint256 fees0, uint256 fees1);
     event Collect(bytes32 indexed poolId, uint256 fees0, uint256 fees1);
@@ -492,6 +494,13 @@ contract MockFeesManager is IDopplerFeesManager {
         updateBeneficiaryReverts = reverts_;
     }
 
+    /// @notice Test hook: makes `updateBeneficiary` revert with `size` bytes of revert data, the
+    /// way a hostile fees manager grieves a caller that copies revert data unbounded. Zero restores
+    /// the normal (short) revert.
+    function setUpdateBeneficiaryRevertBytes(uint256 size) external {
+        updateBeneficiaryRevertBytes = size;
+    }
+
     function collectFees(bytes32 poolId) external nonReentrant returns (uint128 fees0, uint128 fees1) {
         if (collectReverts) revert WrongPoolStatus();
 
@@ -509,6 +518,14 @@ contract MockFeesManager is IDopplerFeesManager {
     }
 
     function updateBeneficiary(bytes32 poolId, address newBeneficiary) external nonReentrant {
+        uint256 revertBytes = updateBeneficiaryRevertBytes;
+        if (revertBytes != 0) {
+            assembly ("memory-safe") {
+                let ptr := mload(0x40)
+                mstore(0x40, add(ptr, revertBytes))
+                revert(ptr, revertBytes)
+            }
+        }
         if (updateBeneficiaryReverts) revert NativeTransferFailed();
         if (newBeneficiary == msg.sender) revert InvalidNewBeneficiary();
 
