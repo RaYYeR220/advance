@@ -34,7 +34,8 @@
 }
 
 .memo::before {
-  content: "\201C";
+  /* ornament only: the empty alternative keeps it out of the accessible text */
+  content: "\201C" / "";
   grid-row: 1 / span 2;
   font-family: var(--display);
   font-size: 88px;

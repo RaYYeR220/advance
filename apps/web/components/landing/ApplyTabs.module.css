@@ -57,7 +57,8 @@
 
 .line::before {
   counter-increment: ln;
-  content: counter(ln);
+  /* gutter numbers are a visual guide only; the empty alternative keeps them out of the accessible text */
+  content: counter(ln) / "";
   position: absolute;
   left: 0;
   width: 36px;

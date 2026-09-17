@@ -10,6 +10,10 @@
   --paper-dk: #E4DFD2;
   --stock: #F7F4EC;
   --ochre: #D9A441;
+  /* ochre for readable numerals on paper and stock: same hue, darkened until large
+     (24px and up) text clears 3:1, grain included. Raw ochre is for screens, rules
+     and decoration only. Set body-size text in forest. */
+  --ochre-ink: #A37521;
   --forest: #173F35;
   --forest-80: rgba(23, 63, 53, 0.82);
   --forest-70: rgba(23, 63, 53, 0.74);
