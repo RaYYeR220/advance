@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {IChainlink} from "../../src/interfaces/IChainlink.sol";
 import {Checkpoint, ICCA} from "../../src/interfaces/ICCA.sol";
 import {IAdvanceHub} from "../../src/interfaces/IAdvanceHub.sol";
@@ -45,6 +46,81 @@ contract MockFeed is IChainlink {
         returns (uint80 roundId, int256 answer_, uint256 startedAt_, uint256 updatedAt_, uint80 answeredInRound)
     {
         return (0, answer, startedAt, updatedAt, 0);
+    }
+}
+
+/// @notice Minimal stand-in for Base USDC's FiatTokenV2_2, implementing only what AgentCard's
+/// x402 unit tests exercise: a real EIP-712 domain separator, the bytes-signature overload of
+/// `transferWithAuthorization` (verified via OZ `SignatureChecker`, so a contract `from` is
+/// routed through ERC-1271 `isValidSignature` exactly like the deployed token), and
+/// `authorizationState` nonce tracking. `name_` is settable per instance so tests can exercise
+/// both the mainnet ("USD Coin") and Sepolia ("USDC") domain names.
+contract MockEIP3009USDC is ERC20 {
+    bytes32 public constant TRANSFER_WITH_AUTHORIZATION_TYPEHASH = keccak256(
+        "TransferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)"
+    );
+
+    bytes32 internal immutable _domainSeparator;
+
+    /// @notice Whether `nonce` has already been used or canceled for `authorizer`.
+    mapping(address authorizer => mapping(bytes32 nonce => bool used)) public authorizationState;
+
+    error AuthorizationNotYetValid();
+    error AuthorizationExpired();
+    error AuthorizationAlreadyUsed();
+    error InvalidSignature();
+
+    constructor(string memory name_) ERC20(name_, "USDC") {
+        _domainSeparator = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(bytes(name_)),
+                keccak256(bytes("2")),
+                block.chainid,
+                address(this)
+            )
+        );
+    }
+
+    function decimals() public pure override returns (uint8) {
+        return 6;
+    }
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    /// @notice The EIP-712 domain separator this mock signs `transferWithAuthorization` against.
+    function DOMAIN_SEPARATOR() external view returns (bytes32) {
+        return _domainSeparator;
+    }
+
+    /// @notice Bytes-signature overload of EIP-3009 `transferWithAuthorization`. Verifies `from`
+    /// via `SignatureChecker` (ECDSA for an EOA, ERC-1271 `isValidSignature` for a contract),
+    /// exactly like FiatTokenV2_2's real bytes overload.
+    function transferWithAuthorization(
+        address from,
+        address to,
+        uint256 value,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce,
+        bytes memory signature
+    ) external {
+        // forge-lint: disable-next-line(block-timestamp) mirrors FiatTokenV2_2's own validAfter check
+        if (block.timestamp < validAfter) revert AuthorizationNotYetValid();
+        // forge-lint: disable-next-line(block-timestamp) mirrors FiatTokenV2_2's own validBefore check
+        if (block.timestamp >= validBefore) revert AuthorizationExpired();
+        if (authorizationState[from][nonce]) revert AuthorizationAlreadyUsed();
+
+        bytes32 structHash = keccak256(
+            abi.encode(TRANSFER_WITH_AUTHORIZATION_TYPEHASH, from, to, value, validAfter, validBefore, nonce)
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator, structHash));
+        if (!SignatureChecker.isValidSignatureNow(from, digest, signature)) revert InvalidSignature();
+
+        authorizationState[from][nonce] = true;
+        _transfer(from, to, value);
     }
 }
 
