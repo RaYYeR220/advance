@@ -1,0 +1,61 @@
+{
+  "chainId": 8453,
+  "network": "mainnet",
+  "ageSeconds": "172800",
+  "dailyFeesWei": [
+    "200000000000000000",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0"
+  ],
+  "creatorSharesWad": "950000000000000000",
+  "ethUsdAnswerE8": "300000000000",
+  "ethUsdStalenessSeconds": "60",
+  "swaps": {
+    "swapCount": 10,
+    "washCount": 0,
+    "whaleCounts": [
+      1,
+      1,
+      1
+    ]
+  },
+  "isWethPool": true,
+  "poolLocked": true,
+  "hookGraduationFlag": false,
+  "tokenName": "Too Young #2",
+  "tokenSymbol": "YNG2",
+  "llm": {
+    "kind": "auto"
+  },
+  "discoveryMode": "both",
+  "id": "too-young-2",
+  "category": "too_young",
+  "description": "Token age 2d (< 3d) but already has one day of trailing revenue (d7 > 0) — isolates too_young from no_recent_revenue."
+}
