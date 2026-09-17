@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { paymentMiddleware, x402ResourceServer } from "@x402/hono";
 import { HTTPFacilitatorClient, type FacilitatorClient } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
@@ -7,12 +8,18 @@ import { networkForChain, usdcAddressForChain, usdcEip712DomainForChain, type Ag
 /** Atomic USDC units (6 decimals) charged per request: 1000 == $0.001. */
 export const PRICE_ATOMIC_USDC = "1000";
 
+/** Base mainnet chain id. This service only ever runs against it when explicitly allowed. */
+const BASE_MAINNET_CHAIN_ID = 8453;
+
+/** Upper bound on the proxied chat-completions request body, enforced before payment is charged. */
+export const MAX_CHAT_BODY_BYTES = 256 * 1024;
+
 /**
  * Fixed red-team probe payloads served by GET /v1/data/:topic when REDTEAM
  * is on. These are deliberately adversarial strings (prompt injection /
- * payee-override attempts) consumed by the red-team suite (task 7) to check
- * that the agent brain never lets fetched data content dictate a payee or
- * policy change. They must never be served unless REDTEAM is explicitly on.
+ * payee-override attempts) used to check that an agent brain fetching this
+ * data never lets its content dictate a payee or policy change. They must
+ * never be served unless REDTEAM is explicitly on.
  */
 export const REDTEAM_PAYLOADS: Readonly<Record<string, string>> = {
   "prompt-injection":
@@ -36,6 +43,13 @@ export interface CreateServiceAppOptions {
  * endpoint that only serves red-team probe payloads when REDTEAM=1.
  */
 export function createServiceApp(config: AgentsConfig, options: CreateServiceAppOptions = {}): Hono {
+  if (config.CHAIN_ID === BASE_MAINNET_CHAIN_ID && !config.ALLOW_MAINNET_SERVICE) {
+    throw new Error(
+      "refusing to start the testnet x402-llm service against Base mainnet (CHAIN_ID=8453). " +
+        "This service is for Base Sepolia testnet spend; set ALLOW_MAINNET_SERVICE=1 to override.",
+    );
+  }
+
   const facilitatorClient =
     options.facilitatorClient ?? new HTTPFacilitatorClient({ url: config.X402_FACILITATOR_URL });
   const network = networkForChain(config.CHAIN_ID);
@@ -49,6 +63,16 @@ export function createServiceApp(config: AgentsConfig, options: CreateServiceApp
   );
 
   const app = new Hono();
+
+  // Reject oversized bodies before payment is charged: runs ahead of the
+  // payment middleware below, scoped only to the proxied chat endpoint.
+  app.use(
+    "/v1/chat/completions",
+    bodyLimit({
+      maxSize: MAX_CHAT_BODY_BYTES,
+      onError: (c) => c.json({ error: "payload too large" }, 413),
+    }),
+  );
 
   app.use(
     paymentMiddleware(
@@ -86,19 +110,27 @@ export function createServiceApp(config: AgentsConfig, options: CreateServiceApp
     // including the version segment (e.g. "https://api.venice.ai/api/v1"), so
     // only "chat/completions" is appended — never rebuild "/v1/..." here.
     const upstreamUrl = `${config.LLM_BASE_URL.replace(/\/+$/, "")}/chat/completions`;
-    const upstream = await fetchImpl(upstreamUrl, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(config.LLM_API_KEY ? { authorization: `Bearer ${config.LLM_API_KEY}` } : {}),
-      },
-      body: await c.req.text(),
-    });
-    const bodyText = await upstream.text();
-    return new Response(bodyText, {
-      status: upstream.status,
-      headers: { "content-type": upstream.headers.get("content-type") ?? "application/json" },
-    });
+    const requestBody = await c.req.text();
+    try {
+      const upstream = await fetchImpl(upstreamUrl, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(config.LLM_API_KEY ? { authorization: `Bearer ${config.LLM_API_KEY}` } : {}),
+        },
+        body: requestBody,
+      });
+      const bodyText = await upstream.text();
+      return new Response(bodyText, {
+        status: upstream.status,
+        headers: { "content-type": upstream.headers.get("content-type") ?? "application/json" },
+      });
+    } catch {
+      // Never leak upstream error text/headers (may contain internal
+      // hostnames, stack traces, or provider-specific diagnostics) — a
+      // network failure talking to the upstream LLM is a controlled 502.
+      return c.json({ error: "upstream LLM request failed" }, 502);
+    }
   });
 
   app.get("/v1/data/:topic", (c) => {

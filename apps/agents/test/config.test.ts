@@ -20,6 +20,7 @@ describe("loadConfig", () => {
     expect(cfg.CHAIN_ID).toBe(84532);
     expect(cfg.LLM_API_KEY).toBeUndefined();
     expect(cfg.REDTEAM).toBe(false);
+    expect(cfg.ALLOW_MAINNET_SERVICE).toBe(false);
   });
 
   it("accepts an explicit facilitator URL, API key, and REDTEAM=1", () => {
@@ -27,6 +28,11 @@ describe("loadConfig", () => {
     expect(cfg.X402_FACILITATOR_URL).toBe(validEnv.X402_FACILITATOR_URL);
     expect(cfg.LLM_API_KEY).toBe("sk-test");
     expect(cfg.REDTEAM).toBe(true);
+  });
+
+  it("accepts ALLOW_MAINNET_SERVICE=1", () => {
+    const cfg = loadConfig({ ...validEnv, ALLOW_MAINNET_SERVICE: "1" });
+    expect(cfg.ALLOW_MAINNET_SERVICE).toBe(true);
   });
 
   it("rejects a malformed SERVICE_PAYTO address", () => {

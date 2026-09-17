@@ -12,6 +12,10 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((value) => value === "1"),
+  ALLOW_MAINNET_SERVICE: z
+    .string()
+    .optional()
+    .transform((value) => value === "1"),
 });
 
 export type AgentsConfig = Readonly<z.infer<typeof envSchema>>;
