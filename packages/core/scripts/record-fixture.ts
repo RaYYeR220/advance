@@ -27,9 +27,9 @@ import { createBankrClient, pickBankrToken } from "../src/sources/bankr.js";
 import { createLiveChainOps } from "../src/sources/chainOps.js";
 import { createRecordingChainOps } from "../src/sources/chainFixture.js";
 import { buildChainReader } from "../src/sources/chainLogic.js";
+import { checkIsWethPool, computeRevenue } from "../src/underwrite/revenue.js";
 
 const DAY_SECONDS = 86_400n;
-const WINDOWS_SECONDS = [1n * DAY_SECONDS, 7n * DAY_SECONDS, 30n * DAY_SECONDS];
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixturesRoot = resolve(here, "../test/fixtures");
@@ -71,28 +71,33 @@ async function main() {
     `  tokenCreatedAt: block=${createdAt.block} timestamp=${createdAt.timestamp} (${new Date(createdAt.timestamp * 1000).toISOString()})`,
   );
 
-  const isWethPaired =
-    poolKey.currency0.toLowerCase() === BASE_WETH.toLowerCase() ||
-    poolKey.currency1.toLowerCase() === BASE_WETH.toLowerCase();
+  const isWethPaired = await checkIsWethPool(reader, feesManager, poolId, BASE_WETH);
 
   let contributingSwapKeys: Set<string> | undefined;
 
   if (isWethPaired) {
-    for (const windowSeconds of WINDOWS_SECONDS) {
-      const window = await reader.getCreatorRevenueWindow({
-        feesManager,
-        poolId,
-        creator,
-        weth: BASE_WETH,
-        windowSeconds,
-        atBlock: latest.number,
-      });
-      console.log(
-        `  window=${windowSeconds / DAY_SECONDS}d creatorRevenueWeth=${
-          Number(window.creatorRevenueWeth) / 1e18
-        }`,
-      );
-    }
+    // Records every call `computeRevenue` makes — the 1d/7d/30d windows, the 8 daily
+    // block anchors + fee-accrual reads behind the 7 on-chain CV buckets, tokenCreatedAt,
+    // and the ETH/USD read — so fixtures always match exactly what production code needs.
+    const revenue = await computeRevenue(reader, {
+      token,
+      feesManager,
+      poolId,
+      creator,
+      weth: BASE_WETH,
+      ethUsdFeed: BASE_ETH_USD_CHAINLINK_FEED,
+      atBlock: latest.number,
+    });
+    console.log(
+      `  revenueWei d1=${Number(revenue.revenueWei.d1) / 1e18} d7=${
+        Number(revenue.revenueWei.d7) / 1e18
+      } d30=${Number(revenue.revenueWei.d30) / 1e18}`,
+    );
+    console.log(
+      `  dailyRevenueWei (oldest..newest): ${revenue.dailyRevenueWei
+        .map((w) => Number(w) / 1e18)
+        .join(", ")}`,
+    );
 
     const swapFromTimestamp = latest.timestamp - 7n * DAY_SECONDS;
     const swapFromBlock = await reader.blockAt(swapFromTimestamp);
@@ -111,8 +116,6 @@ async function main() {
     contributingSwapKeys = new Set(
       swaps.map((s) => `${s.blockNumber}:${s.logIndex}`),
     );
-
-    await reader.getEthUsdPrice(BASE_ETH_USD_CHAINLINK_FEED, latest.number);
   } else {
     console.log(
       `  ${slug}: not WETH-paired (currency0=${poolKey.currency0} currency1=${poolKey.currency1}) — skipping revenue/swap/price calls`,

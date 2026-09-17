@@ -9,25 +9,28 @@ const CV_HAIRCUT_THRESHOLD = 1.5;
 const TOP_N_FOR_CONCENTRATION = 5;
 const BPS_SCALE = 10_000;
 
+const CONCENTRATION_HAIRCUT_FACTOR_BPS = 6000;
+const WASH_HAIRCUT_FACTOR_BPS = 5000;
+const AGE_HAIRCUT_FACTOR_BPS = 7000;
+const CV_HAIRCUT_FACTOR_BPS = 8000;
+
 export interface QualityContext {
   /**
-   * Wash-trading signal: swaps whose `tx.from` equals this address. Bankr's typed
-   * `token-fees` response (`BankrTokenFeeEntry`) has no separate "deployer" field — only
-   * the creator/beneficiary (`BankrTokenFeesResponse.address`) — and `SwapRecord` carries
-   * no deployer either, so per the plan-02 task-3 facts "creator or token deployer"
-   * collapses to "creator" here; documented here rather than silently assumed.
+   * Wash-trading signal: swaps whose `tx.from` equals this address. Neither Bankr's
+   * typed `token-fees` response nor `SwapRecord` carries a separate token-deployer
+   * address — only the creator/beneficiary is reliably available — so "creator or token
+   * deployer" collapses to "creator" here; documented here rather than silently assumed.
    */
   creator: Address;
   /** Token age in seconds (from `RevenueWindows.ageSeconds`). */
   ageSeconds: bigint;
   /**
-   * Last-N daily revenue buckets, most-recent-last, in any single consistent unit — CV is
-   * dimensionless, so WETH wei works as well as micro-USD. `ChainReader` has no cheap
-   * historical daily-bucket read (only cumulative-since-block), so callers are expected to
-   * source these from `BankrTokenFeesResponse.dailyEarnings` (display-grade per
-   * `sources/bankr.ts`'s docstring) — acceptable here because CV only ever feeds a haircut
-   * *multiplier*, never a money figure. Fewer than 2 buckets, or a non-positive mean,
-   * leaves `cv` undefined (no haircut contribution) rather than fabricating a signal.
+   * The last 7 on-chain daily revenue buckets, most-recent-last, in any single
+   * consistent unit — CV is dimensionless, so WETH wei works as well as micro-USD.
+   * Source these from `RevenueWindows.dailyRevenueWei` (`computeRevenue` derives them
+   * from on-chain fee accrual, never from off-chain claim/display data). Fewer than 2
+   * buckets, or a non-positive mean, leaves `cv` undefined (no haircut contribution)
+   * rather than fabricating a signal.
    */
   recentDailyRevenue: readonly bigint[];
 }
@@ -40,12 +43,14 @@ export interface Quality {
   washRatio: number;
   /** Coefficient of variation of `recentDailyRevenue`; undefined if not computable. */
   cv: number | undefined;
-  /** Combined multiplicative haircut, floor-rounded integer bps, 0..10000. */
+  /** Combined multiplicative haircut, integer bps, 0..10000. */
   haircutBps: number;
 }
 
-function clamp(x: number, lo: number, hi: number): number {
-  return Math.min(hi, Math.max(lo, x));
+/** `h * factorBps / 10000`, floored — every haircut factor is applied as an integer bps
+ * multiplication, never accumulated as a float and rounded once at the end. */
+function applyHaircutFactor(haircutBps: number, factorBps: number): number {
+  return Math.floor((haircutBps * factorBps) / BPS_SCALE);
 }
 
 function computeCv(buckets: readonly bigint[]): number | undefined {
@@ -86,13 +91,19 @@ export function computeQuality(
 
   const cv = computeCv(ctx.recentDailyRevenue);
 
-  let multiplier = 1;
-  if (top5ConcentrationRatio > CONCENTRATION_HAIRCUT_THRESHOLD) multiplier *= 0.6;
-  if (washRatio > WASH_HAIRCUT_THRESHOLD) multiplier *= 0.5;
-  if (ctx.ageSeconds < AGE_HAIRCUT_THRESHOLD_SECONDS) multiplier *= 0.7;
-  if (cv !== undefined && cv > CV_HAIRCUT_THRESHOLD) multiplier *= 0.8;
-
-  const haircutBps = Math.floor(clamp(multiplier, 0, 1) * BPS_SCALE);
+  let haircutBps = BPS_SCALE;
+  if (top5ConcentrationRatio > CONCENTRATION_HAIRCUT_THRESHOLD) {
+    haircutBps = applyHaircutFactor(haircutBps, CONCENTRATION_HAIRCUT_FACTOR_BPS);
+  }
+  if (washRatio > WASH_HAIRCUT_THRESHOLD) {
+    haircutBps = applyHaircutFactor(haircutBps, WASH_HAIRCUT_FACTOR_BPS);
+  }
+  if (ctx.ageSeconds < AGE_HAIRCUT_THRESHOLD_SECONDS) {
+    haircutBps = applyHaircutFactor(haircutBps, AGE_HAIRCUT_FACTOR_BPS);
+  }
+  if (cv !== undefined && cv > CV_HAIRCUT_THRESHOLD) {
+    haircutBps = applyHaircutFactor(haircutBps, CV_HAIRCUT_FACTOR_BPS);
+  }
 
   return { swapCount, top5ConcentrationRatio, washRatio, cv, haircutBps };
 }

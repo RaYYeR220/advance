@@ -3,11 +3,13 @@ import type { RevenueWindows } from "./revenue.js";
 
 const DAY_SECONDS = 86_400n;
 const PROJECTION_DAYS = 90;
-/** `q = (decayBps/10000)^(1/DECAY_EXPONENT)` per the plan-02 task-3 binding formula. */
+/** `q = (decayBps/10000)^(1/DECAY_EXPONENT)`. The [1000,10000]/[0.90,1.0] clamps below
+ * keep a collapsing token (r1 far below r7/7) from projecting many multiples of its
+ * current daily revenue over 90 days — a tighter [5000]/[0.97] pair let that happen. */
 const DECAY_EXPONENT = 23;
-const DECAY_MIN_BPS = 5000n;
+const DECAY_MIN_BPS = 1000n;
 const DECAY_MAX_BPS = 10000n;
-const Q_MIN = 0.97;
+const Q_MIN = 0.9;
 const Q_MAX = 1.0;
 
 const CAP_CONSERVATISM_BPS = 5000n; // rawCap = projected90 * 5000/10000 * haircut/10000
@@ -31,7 +33,7 @@ const DEFAULT_DRAW_PERIOD_SECONDS = 86_400;
 const DEFAULT_GRACE_PERIOD_SECONDS = 14 * 86_400;
 const MAINNET_AUCTION_BLOCKS = 1000n;
 const DEMO_AUCTION_BLOCKS = 250n;
-/** Auction durations must divide this many blocks-mps (plan 00 constraint). */
+/** Auction durations must divide this many blocks-mps. */
 const AUCTION_BLOCKS_MODULUS = 10_000_000n; // 1e7
 
 export type UnderwritingNetwork = "mainnet" | "demo";
@@ -79,18 +81,64 @@ function bigintMax(a: bigint, b: bigint): bigint {
   return a > b ? a : b;
 }
 
+/** Rejects negative money/ratio inputs outright rather than letting them silently flow
+ * into a nonsensical cap — every input here should be structurally non-negative already
+ * (revenue accrual deltas, ages, bps), so a negative value means something upstream is
+ * broken and must fail loudly, not produce a plausible-looking wrong number. */
+function assertNonNegativeInputs(rev: RevenueWindows, quality: Quality): void {
+  const revenues = [rev.revenueMicroUsd.d1, rev.revenueMicroUsd.d7, rev.revenueMicroUsd.d30];
+  for (const value of revenues) {
+    if (value < 0n) {
+      throw new Error(`computeTerms: revenueMicroUsd must be non-negative, got ${value}`);
+    }
+  }
+  if (rev.ageSeconds < 0n) {
+    throw new Error(`computeTerms: ageSeconds must be non-negative, got ${rev.ageSeconds}`);
+  }
+  if (quality.haircutBps < 0 || quality.haircutBps > 10000) {
+    throw new Error(`computeTerms: haircutBps must be within [0,10000], got ${quality.haircutBps}`);
+  }
+}
+
+/** Validates env overrides before they reach the formula: a non-positive or
+ * non-integer draw/grace period would otherwise produce a nonsensical `TermSheet`, and
+ * a hard ceiling above the mainnet pilot's $25 cap would silently blow past the
+ * program's own risk limit. */
+function assertUsableEnv(env: UnderwritingEnv): void {
+  for (const [name, value] of [
+    ["drawPeriodSeconds", env.drawPeriodSeconds],
+    ["gracePeriodSeconds", env.gracePeriodSeconds],
+  ] as const) {
+    if (value !== undefined && (!Number.isInteger(value) || value <= 0)) {
+      throw new Error(`computeTerms: ${name} must be a positive integer, got ${value}`);
+    }
+  }
+  if (
+    env.network === "mainnet" &&
+    env.hardCeilingMicroUsd !== undefined &&
+    env.hardCeilingMicroUsd > MAINNET_HARD_CEILING_MICRO_USD
+  ) {
+    throw new Error(
+      `computeTerms: hardCeilingMicroUsd (${env.hardCeilingMicroUsd}) may not exceed the mainnet ceiling (${MAINNET_HARD_CEILING_MICRO_USD})`,
+    );
+  }
+}
+
 /**
  * Pure underwriting math: 90-day revenue projection, quality haircut applied, cap +
  * floor + draw terms derived. Every output is bigint (money) or integer bps/seconds/
  * cents — the only floats used internally (decay retention `q`, the geometric-sum
  * multiplier) are converted back to bigint with explicit floor rounding before leaving
- * this function, per the plan-02 "no floats in money paths" constraint.
+ * this function.
  */
 export function computeTerms(
   rev: RevenueWindows,
   quality: Quality,
   env: UnderwritingEnv,
 ): TermsSummary & { noteSupply: bigint; auctionBlocks: bigint } {
+  assertNonNegativeInputs(rev, quality);
+  assertUsableEnv(env);
+
   const d1 = rev.revenueMicroUsd.d1;
   const d7 = rev.revenueMicroUsd.d7;
   const d30 = rev.revenueMicroUsd.d30;

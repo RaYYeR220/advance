@@ -94,7 +94,29 @@ describe("computeQuality", () => {
     expect(q.haircutBps).toBe(10000);
   });
 
-  it("all four haircuts compound multiplicatively, floored down to an integer (1680 bps, not 1681)", () => {
+  it("age + CV stack: h=10000 -> *7000/10000=7000 -> *8000/10000=5600", () => {
+    const q = computeQuality(
+      [],
+      baseCtx({ ageSeconds: 5n * DAY, recentDailyRevenue: [0n, 0n, 0n, 0n, 0n, 0n, 700_000n] }),
+    );
+    expect(q.cv).toBeGreaterThan(1.5);
+    expect(q.haircutBps).toBe(5600);
+  });
+
+  it("wash + age + CV stack: h=10000 -> *5000/10000=5000 -> *7000/10000=3500 -> *8000/10000=2800", () => {
+    const others = Array.from({ length: 14 }, (_, i) => swap(addr(i + 1)));
+    const s = [...swaps(CREATOR, 6), ...others]; // wash 30%, concentration 50% (kept under 60% to isolate)
+    const q = computeQuality(
+      s,
+      baseCtx({ ageSeconds: 5n * DAY, recentDailyRevenue: [0n, 0n, 0n, 0n, 0n, 0n, 700_000n] }),
+    );
+    expect(q.top5ConcentrationRatio).toBeLessThanOrEqual(0.6);
+    expect(q.washRatio).toBeGreaterThan(0.2);
+    expect(q.cv).toBeGreaterThan(1.5);
+    expect(q.haircutBps).toBe(2800);
+  });
+
+  it("all four haircuts compound as integer bps, floored down at each step (1680 bps, not 1681)", () => {
     const others = Array.from({ length: 5 }, (_, i) => swap(addr(i + 1)));
     const s = [...swaps(CREATOR, 15), ...others];
     const q = computeQuality(
@@ -104,13 +126,20 @@ describe("computeQuality", () => {
     expect(q.top5ConcentrationRatio).toBeGreaterThan(0.6);
     expect(q.washRatio).toBeGreaterThan(0.2);
     expect(q.cv).toBeGreaterThan(1.5);
-    // 0.6 * 0.5 * 0.7 * 0.8 = 0.168 exactly in floating point -> floor(1680.0) = 1680.
+    // 10000 -[*6000/10000]-> 6000 -[*5000/10000]-> 3000 -[*7000/10000]-> 2100 -[*8000/10000]-> 1680.
     expect(q.haircutBps).toBe(1680);
   });
 
-  it("wash-trading signal is exactly tx.from === creator (case-insensitive), not sender", () => {
+  it("a swap whose sender (not tx.from) is the creator does not count as wash", () => {
     const s = [{ ...swap(addr(9)), sender: CREATOR }]; // sender is the creator, tx.from is not
     const q = computeQuality(s, baseCtx());
     expect(q.washRatio).toBe(0);
+  });
+
+  it("the wash-trading signal compares tx.from case-insensitively", () => {
+    const differentlyCasedCreator = ("0x" + CREATOR.slice(2).toUpperCase()) as Address;
+    const s = [swap(differentlyCasedCreator)];
+    const q = computeQuality(s, baseCtx({ creator: CREATOR }));
+    expect(q.washRatio).toBe(1);
   });
 });

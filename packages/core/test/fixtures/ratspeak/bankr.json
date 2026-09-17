@@ -15,8 +15,8 @@
       "numeraire": "0x4200000000000000000000000000000000000006",
       "tokenIsToken0": false,
       "claimable": {
-        "token0": "0.464211",
-        "token1": "97201265.018703"
+        "token0": "0.464375",
+        "token1": "97201461.925025"
       },
       "claimed": {
         "token0": "0.000000",
@@ -1014,7 +1014,7 @@
     "weth": "6.6362"
   },
   "totals": {
-    "claimableWeth": "0.464211",
+    "claimableWeth": "0.464375",
     "claimedWeth": "0.000000",
     "claimCount": 0
   }

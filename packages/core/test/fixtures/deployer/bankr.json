@@ -603,7 +603,7 @@
   "lifetimeDays": 0,
   "lifetimeBestDay": null,
   "totals": {
-    "claimableWeth": "0.264453",
+    "claimableWeth": "0.271158",
     "claimedWeth": "0",
     "claimCount": 0
   }
