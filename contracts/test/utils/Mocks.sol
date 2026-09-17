@@ -748,12 +748,19 @@ contract MockReputation {
     }
 
     bool public reverts;
+    bool public burnsGas;
     Feedback[] internal _feedback;
 
     error FeedbackRejected();
 
     function setReverts(bool reverts_) external {
         reverts = reverts_;
+    }
+
+    /// @notice Test hook: makes `giveFeedback` consume every bit of gas it is given, standing in for
+    /// a registry that (by accident or by upgrade) could starve its caller.
+    function setBurnsGas(bool burnsGas_) external {
+        burnsGas = burnsGas_;
     }
 
     function giveFeedback(
@@ -767,6 +774,11 @@ contract MockReputation {
         bytes32 feedbackHash
     ) external {
         if (reverts) revert FeedbackRejected();
+        if (burnsGas) {
+            assembly ("memory-safe") {
+                invalid()
+            }
+        }
         _feedback.push(
             Feedback({
                 client: msg.sender,

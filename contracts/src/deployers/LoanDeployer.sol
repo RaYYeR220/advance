@@ -7,12 +7,14 @@ import {CreditLine} from "../CreditLine.sol";
 import {RevenueNote} from "../RevenueNote.sol";
 
 /// @title LoanDeployer
-/// @notice Linked library holding CreditLine's and RevenueNote's creation code, so AdvanceHub's own
-/// deployment stays within the EIP-3860 initcode limit. Its functions run by DELEGATECALL in the
-/// hub's context, so the hub itself deploys each contract and is recorded as its controller;
-/// called directly (not by DELEGATECALL) they revert.
-library LoanDeployer {
-    /// @notice Deploys a loan's credit line controlled by the calling contract.
+/// @notice Stateless helper that holds CreditLine's and RevenueNote's creation code so AdvanceHub's
+/// own deployment stays within the EIP-3860 initcode limit. Deployed once per chain and passed to
+/// the hub's constructor, it is always called (never delegatecalled), so it keeps no state of its
+/// own and touches no hub storage.
+/// @dev Every contract it deploys records its caller as the hub, so a contract naming a given hub
+/// can only have been deployed by that hub.
+contract LoanDeployer {
+    /// @notice Deploys a credit line controlled by the caller.
     /// @param usdc USDC token the credit line custodies.
     /// @param card The agent's card; the only address allowed to draw.
     /// @param treasury The agent treasury; receives what is left over on freeze or close.
@@ -20,21 +22,21 @@ library LoanDeployer {
     /// @param drawPeriod Length, in seconds, of one draw period.
     /// @return The deployed credit line.
     function deployCreditLine(address usdc, address card, address treasury, uint128 drawLimit, uint64 drawPeriod)
-        public
+        external
         returns (address)
     {
-        return address(new CreditLine(address(this), usdc, card, treasury, drawLimit, drawPeriod));
+        return address(new CreditLine(msg.sender, usdc, card, treasury, drawLimit, drawPeriod));
     }
 
-    /// @notice Deploys a loan's revenue note controlled by the calling contract, named
-    /// "Advance Revenue Note #<loanId>" with symbol "arN<loanId>".
+    /// @notice Deploys a revenue note controlled by the caller, named "Advance Revenue Note #<loanId>"
+    /// with symbol "arN<loanId>".
     /// @param loanId The loan id the note is issued for.
     /// @param usdc USDC token repayments are paid in.
     /// @return The deployed note.
-    function deployNote(uint256 loanId, address usdc) public returns (address) {
+    function deployNote(uint256 loanId, address usdc) external returns (address) {
         string memory id = Strings.toString(loanId);
         return address(
-            new RevenueNote(string.concat("Advance Revenue Note #", id), string.concat("arN", id), address(this), usdc)
+            new RevenueNote(string.concat("Advance Revenue Note #", id), string.concat("arN", id), msg.sender, usdc)
         );
     }
 }

@@ -4,6 +4,8 @@ pragma solidity 0.8.30;
 import {Test, Vm} from "forge-std/Test.sol";
 import {VmSafe} from "forge-std/Vm.sol";
 import {AdvanceHub} from "../../src/AdvanceHub.sol";
+import {EscrowDeployer} from "../../src/deployers/EscrowDeployer.sol";
+import {LoanDeployer} from "../../src/deployers/LoanDeployer.sol";
 import {AgentCard} from "../../src/AgentCard.sol";
 import {CreditLine} from "../../src/CreditLine.sol";
 import {RevenueEscrow} from "../../src/RevenueEscrow.sol";
@@ -66,6 +68,8 @@ abstract contract BaseTest is Test {
 
     AdvanceHub internal hub;
     AgentCard internal card;
+    EscrowDeployer internal escrowDeployer;
+    LoanDeployer internal loanDeployer;
 
     address internal underwriter;
     address internal owner = makeAddr("owner");
@@ -99,7 +103,9 @@ abstract contract BaseTest is Test {
 
         _registerPool(address(weth), address(agentToken));
 
-        hub = new AdvanceHub(_hubConfig(), underwriter, owner);
+        escrowDeployer = new EscrowDeployer();
+        loanDeployer = new LoanDeployer();
+        hub = new AdvanceHub(_hubConfig(), underwriter, owner, escrowDeployer, loanDeployer);
 
         address[] memory payees = new address[](1);
         payees[0] = payee;
@@ -278,33 +284,24 @@ abstract contract BaseTest is Test {
         assertEq(uint8(hub.loan(loanId).status), uint8(expected), "loan status");
     }
 
-    /// @dev The calls, delegatecalls and contract creations `from` made directly, in order, from a
-    /// state-diff recording. The recorder attributes a delegatecall to the outer caller rather than
-    /// to `from`, so delegatecalls are matched by call depth instead: one frame below the first
-    /// call into `from`. Creations and calls are matched by accessor. Selectors are zero for
-    /// creations.
+    /// @dev The calls and contract creations `from` made directly, in order, from a state-diff
+    /// recording. Selectors are zero for creations.
     function _accessesFrom(Vm.AccountAccess[] memory accesses, address from)
         internal
         pure
         returns (VmSafe.AccountAccessKind[] memory kinds, address[] memory targets, bytes4[] memory selectors)
     {
-        uint64 innerDepth;
-        for (uint256 i; i < accesses.length; ++i) {
-            if (accesses[i].account == from && accesses[i].kind == VmSafe.AccountAccessKind.Call) {
-                innerDepth = accesses[i].depth + 1;
-                break;
-            }
-        }
         kinds = new VmSafe.AccountAccessKind[](accesses.length);
         targets = new address[](accesses.length);
         selectors = new bytes4[](accesses.length);
         uint256 count;
         for (uint256 i; i < accesses.length; ++i) {
             Vm.AccountAccess memory access = accesses[i];
-            bool matches = (access.kind == VmSafe.AccountAccessKind.Call && access.accessor == from)
-                || (access.kind == VmSafe.AccountAccessKind.Create && access.accessor == from)
-                || (access.kind == VmSafe.AccountAccessKind.DelegateCall && access.depth == innerDepth);
-            if (!matches) continue;
+            if (access.accessor != from) continue;
+            if (
+                access.kind != VmSafe.AccountAccessKind.Call && access.kind != VmSafe.AccountAccessKind.Create
+                    && access.kind != VmSafe.AccountAccessKind.DelegateCall
+            ) continue;
             kinds[count] = access.kind;
             targets[count] = access.account;
             if (access.kind != VmSafe.AccountAccessKind.Create && access.data.length >= 4) {

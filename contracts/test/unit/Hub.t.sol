@@ -17,6 +17,7 @@ import {IReputationRegistry} from "../../src/interfaces/IERC8004.sol";
 import {PoolKey} from "../../src/interfaces/IDopplerFeesManager.sol";
 import {TermSheet, TermSheetLib} from "../../src/lib/TermSheetLib.sol";
 import {BaseTest} from "../utils/BaseTest.sol";
+import {TermSheetVector} from "../utils/Vectors.sol";
 import {MockAgentCard, MockAuction, MockFeesManager, MockReputation} from "../utils/Mocks.sol";
 
 /// @notice Card stand-in whose getters return arbitrary raw bytes, to show the hub treating any
@@ -62,13 +63,52 @@ contract HarvestingCard {
     }
 
     function freeze() external {
-        harvested = true;
         escrow.harvest(0);
+        harvested = true;
     }
 
     function unfreeze() external {}
 
     function returnFunds(address) external {}
+}
+
+/// @notice A card whose hub hooks burn every bit of gas they are given, the way a hostile agent
+/// card would to stop its loan from ever being defaulted.
+contract GasBurningCard {
+    address public hub;
+    address public usdc;
+    address public owner;
+    address[] internal _payees;
+
+    constructor(address hub_, address usdc_, address owner_, address[] memory payees_) {
+        hub = hub_;
+        usdc = usdc_;
+        owner = owner_;
+        _payees = payees_;
+    }
+
+    function payees() external view returns (address[] memory) {
+        return _payees;
+    }
+
+    function freeze() external pure {
+        _burnGas();
+    }
+
+    function unfreeze() external pure {
+        _burnGas();
+    }
+
+    function returnFunds(address) external pure {
+        _burnGas();
+    }
+
+    /// @dev `invalid()` consumes all gas forwarded to this call, and nothing else.
+    function _burnGas() internal pure {
+        assembly ("memory-safe") {
+            invalid()
+        }
+    }
 }
 
 /// @notice Unit tests for AdvanceHub against the real RevenueEscrow, RevenueNote, CreditLine and
@@ -77,7 +117,6 @@ contract HarvestingCard {
 /// lifecycle including every optional hook failing, and the owner's lack of power over loans.
 contract AdvanceHubTest is BaseTest {
     bytes32 internal constant POOL_ID_2 = keccak256("agent-pool-2");
-    string internal constant VECTOR_PATH = "test/vectors/termsheet.json";
     bytes32 internal constant DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
 
@@ -92,7 +131,7 @@ contract AdvanceHubTest is BaseTest {
 
     /// @dev Replaces the fixture hub (and its card) with one built from `cfg`.
     function _redeployHub(AdvanceHub.Config memory cfg) internal {
-        hub = new AdvanceHub(cfg, underwriter, owner);
+        hub = new AdvanceHub(cfg, underwriter, owner, escrowDeployer, loanDeployer);
         card = new AgentCard(cardOwner, address(hub), address(usdc), PER_CALL_CAP, MAX_AUTH_WINDOW, _payees());
     }
 
@@ -115,27 +154,6 @@ contract AdvanceHubTest is BaseTest {
 
     function _expectBadTerms(TermSheet memory ts, uint8 code) internal {
         _expectOpenRevert(ts, abi.encodeWithSelector(AdvanceHub.BadTerms.selector, code));
-    }
-
-    function _vectorTermSheet(string memory json) internal pure returns (TermSheet memory) {
-        return TermSheet({
-            agentTreasury: vm.parseJsonAddress(json, ".input.agentTreasury"),
-            agentCard: vm.parseJsonAddress(json, ".input.agentCard"),
-            agentId: vm.parseJsonUint(json, ".input.agentId"),
-            feesManager: vm.parseJsonAddress(json, ".input.feesManager"),
-            poolId: vm.parseJsonBytes32(json, ".input.poolId"),
-            expectedShares: vm.parseJsonUint(json, ".input.expectedShares"),
-            noteSupply: vm.parseJsonUint(json, ".input.noteSupply"),
-            floorCents: uint16(vm.parseJsonUint(json, ".input.floorCents")),
-            minPrincipal: uint128(vm.parseJsonUint(json, ".input.minPrincipal")),
-            auctionBlocks: uint64(vm.parseJsonUint(json, ".input.auctionBlocks")),
-            drawLimit: uint128(vm.parseJsonUint(json, ".input.drawLimit")),
-            drawPeriod: uint64(vm.parseJsonUint(json, ".input.drawPeriod")),
-            gracePeriod: uint64(vm.parseJsonUint(json, ".input.gracePeriod")),
-            deadline: uint64(vm.parseJsonUint(json, ".input.deadline")),
-            nonce: vm.parseJsonUint(json, ".input.nonce"),
-            memoHash: vm.parseJsonBytes32(json, ".input.memoHash")
-        });
     }
 
     function _assertFeedback(uint256 index, int128 value, string memory tag) internal view {
@@ -175,6 +193,10 @@ contract AdvanceHubTest is BaseTest {
 
         assertEq(hub.TICK_SPACING_Q96(), uint256(1e4 << 96) / 1e18);
         assertEq(hub.TICK_SPACING_Q96(), 792281625142643);
+        assertEq(hub.CARD_HOOK_GAS(), 200_000);
+        assertEq(hub.REPUTATION_HOOK_GAS(), 500_000);
+        assertEq(address(hub.escrowDeployer()), address(escrowDeployer));
+        assertEq(address(hub.loanDeployer()), address(loanDeployer));
 
         (, string memory name, string memory version, uint256 chainId, address verifyingContract,,) = hub.eip712Domain();
         assertEq(name, "Advance");
@@ -184,10 +206,12 @@ contract AdvanceHubTest is BaseTest {
     }
 
     function test_constructor_rejectsZeroAddresses() public {
-        for (uint256 i; i < 7; ++i) {
+        for (uint256 i; i < 9; ++i) {
             AdvanceHub.Config memory cfg = _hubConfig();
             address underwriter_ = underwriter;
             address owner_ = owner;
+            EscrowDeployer escrowDeployer_ = escrowDeployer;
+            LoanDeployer loanDeployer_ = loanDeployer;
             if (i == 0) cfg.usdc = address(0);
             if (i == 1) cfg.weth = address(0);
             if (i == 2) cfg.ccaFactory = address(0);
@@ -195,8 +219,10 @@ contract AdvanceHubTest is BaseTest {
             if (i == 4) cfg.ethUsdFeed = address(0);
             if (i == 5) underwriter_ = address(0);
             if (i == 6) owner_ = address(0);
+            if (i == 7) escrowDeployer_ = EscrowDeployer(address(0));
+            if (i == 8) loanDeployer_ = LoanDeployer(address(0));
             vm.expectRevert(AdvanceHub.ZeroAddress.selector);
-            new AdvanceHub(cfg, underwriter_, owner_);
+            new AdvanceHub(cfg, underwriter_, owner_, escrowDeployer_, loanDeployer_);
         }
     }
 
@@ -204,7 +230,7 @@ contract AdvanceHubTest is BaseTest {
         AdvanceHub.Config memory cfg = _hubConfig();
         cfg.sequencerFeed = address(0);
         cfg.reputationRegistry = address(0);
-        AdvanceHub deployed = new AdvanceHub(cfg, underwriter, owner);
+        AdvanceHub deployed = new AdvanceHub(cfg, underwriter, owner, escrowDeployer, loanDeployer);
         assertEq(deployed.config().sequencerFeed, address(0));
         assertEq(deployed.config().reputationRegistry, address(0));
     }
@@ -221,30 +247,23 @@ contract AdvanceHubTest is BaseTest {
     // EIP-712 digest
     // ---------------------------------------------------------------------------------------
 
-    /// @dev `TermSheetTest` rewrites the vector file while suites run in parallel, so a read can
-    /// land mid-write; re-read until the file parses.
-    function _readVector() internal view returns (string memory json) {
-        for (uint256 i; i < 50; ++i) {
-            json = vm.readFile(VECTOR_PATH);
-            try vm.parseJsonBytes32(json, ".digest") returns (bytes32) {
-                return json;
-            } catch {}
-        }
-        revert("vector file unreadable");
-    }
-
     function test_termSheetDigest_reproducesCrossLanguageVector() public {
-        string memory json = _readVector();
-        TermSheet memory ts = _vectorTermSheet(json);
-        assertEq(vm.parseJsonString(json, ".domain.name"), "Advance");
-        assertEq(vm.parseJsonString(json, ".domain.version"), "1");
-        address verifyingContract = vm.parseJsonAddress(json, ".domain.verifyingContract");
+        string memory json = TermSheetVector.read();
+        TermSheet memory ts = TermSheetVector.termSheet(json);
+        (string memory name, string memory version, uint256 chainId, address verifyingContract) =
+            TermSheetVector.domain(json);
+        assertEq(name, "Advance");
+        assertEq(version, "1");
 
-        vm.chainId(vm.parseJsonUint(json, ".domain.chainId"));
-        deployCodeTo("AdvanceHub.sol:AdvanceHub", abi.encode(_hubConfig(), underwriter, owner), verifyingContract);
+        vm.chainId(chainId);
+        deployCodeTo(
+            "AdvanceHub.sol:AdvanceHub",
+            abi.encode(_hubConfig(), underwriter, owner, escrowDeployer, loanDeployer),
+            verifyingContract
+        );
 
-        assertEq(TermSheetLib.structHash(ts), vm.parseJsonBytes32(json, ".structHash"), "structHash");
-        assertEq(AdvanceHub(verifyingContract).termSheetDigest(ts), vm.parseJsonBytes32(json, ".digest"), "digest");
+        assertEq(TermSheetLib.structHash(ts), TermSheetVector.structHash(json), "structHash");
+        assertEq(AdvanceHub(verifyingContract).termSheetDigest(ts), TermSheetVector.digest(json), "digest");
     }
 
     function test_termSheetDigest_bindsHubAddressAndChain() public view {
@@ -307,45 +326,56 @@ contract AdvanceHubTest is BaseTest {
         assertTrue(hub.predictEscrow(other) != base, "drawLimit");
     }
 
-    function test_predictEscrow_isTheHubsOwnCreate2Address() public view {
+    function test_predictEscrow_isTheEscrowDeployersCreate2Address() public view {
         TermSheet memory ts = _termSheet();
         bytes32 initCodeHash =
             keccak256(abi.encodePacked(type(RevenueEscrow).creationCode, abi.encode(_escrowConfigFor(ts))));
-        assertEq(hub.predictEscrow(ts), vm.computeCreate2Address(_hash(ts), initCodeHash, address(hub)));
-        assertEq(hub.predictEscrow(ts), EscrowDeployer.predict(_escrowConfigFor(ts), _hash(ts), address(hub)));
+        assertEq(hub.predictEscrow(ts), vm.computeCreate2Address(_hash(ts), initCodeHash, address(escrowDeployer)));
+        assertEq(hub.predictEscrow(ts), escrowDeployer.predict(_escrowConfigFor(ts), _hash(ts)));
     }
 
-    function test_deployerLibraries_onlyRunByDelegatecall() public {
+    function test_deployers_areOrdinaryContractsCalledByTheHub() public {
         TermSheet memory ts = _termSheet();
         _onboard(ts);
         bytes memory signature = _sign(ts);
 
         vm.startStateDiffRecording();
-        _openLoanAs(treasury, ts, signature);
+        uint256 loanId = _openLoanAs(treasury, ts, signature);
         Vm.AccountAccess[] memory accesses = vm.stopAndReturnStateDiff();
 
-        (VmSafe.AccountAccessKind[] memory kinds, address[] memory targets, bytes4[] memory selectors) =
-            _accessesFrom(accesses, address(hub));
-        address escrowLib;
-        address loanLib;
+        (VmSafe.AccountAccessKind[] memory kinds,,) = _accessesFrom(accesses, address(hub));
         for (uint256 i; i < kinds.length; ++i) {
-            if (kinds[i] != VmSafe.AccountAccessKind.DelegateCall) continue;
-            if (selectors[i] == EscrowDeployer.deploy.selector) escrowLib = targets[i];
-            if (selectors[i] == LoanDeployer.deployNote.selector) loanLib = targets[i];
+            assertTrue(kinds[i] != VmSafe.AccountAccessKind.DelegateCall, "hub never delegatecalls a deployer");
+            assertTrue(kinds[i] != VmSafe.AccountAccessKind.Create, "the deployers create, not the hub");
         }
-        assertTrue(escrowLib != address(0) && loanLib != address(0), "hub delegatecalls both libraries");
 
-        (bool ok,) =
-            escrowLib.call(abi.encodeWithSelector(EscrowDeployer.deploy.selector, _escrowConfigFor(ts), bytes32(0)));
-        assertFalse(ok, "escrow deployer rejects a direct call");
-        (ok,) = loanLib.call(abi.encodeWithSelector(LoanDeployer.deployNote.selector, uint256(1), address(usdc)));
-        assertFalse(ok, "note deployer rejects a direct call");
-        (ok,) = loanLib.call(
-            abi.encodeWithSelector(
-                LoanDeployer.deployCreditLine.selector, address(usdc), address(card), treasury, DRAW_LIMIT, DRAW_PERIOD
-            )
-        );
-        assertFalse(ok, "credit line deployer rejects a direct call");
+        // The deployers hand control of everything they create to the hub that called them.
+        AdvanceHub.Loan memory loan = hub.loan(loanId);
+        assertEq(RevenueNote(loan.note).hub(), address(hub));
+        assertEq(CreditLine(loan.creditLine).hub(), address(hub));
+        assertEq(RevenueEscrow(payable(loan.escrow)).hub(), address(hub));
+    }
+
+    function test_escrowDeployer_rejectsAConfigNamingAnotherHub() public {
+        TermSheet memory ts = _termSheet();
+        RevenueEscrow.Config memory cfg = _escrowConfigFor(ts);
+        cfg.hub = keeper;
+        vm.prank(keeper);
+        escrowDeployer.deploy(cfg, _hash(ts)); // the caller may deploy its own escrow
+
+        vm.prank(keeper);
+        vm.expectRevert(EscrowDeployer.NotHub.selector);
+        escrowDeployer.deploy(_escrowConfigFor(ts), _hash(ts)); // but not one naming the hub
+    }
+
+    function test_loanDeployer_recordsItsCallerAsHub() public {
+        RevenueNote note = RevenueNote(loanDeployer.deployNote(7, address(usdc)));
+        assertEq(note.hub(), address(this));
+        assertEq(note.name(), "Advance Revenue Note #7");
+
+        CreditLine creditLine =
+            CreditLine(loanDeployer.deployCreditLine(address(usdc), address(card), treasury, DRAW_LIMIT, DRAW_PERIOD));
+        assertEq(creditLine.hub(), address(this));
     }
 
     function _escrowConfigFor(TermSheet memory ts) internal view returns (RevenueEscrow.Config memory) {
@@ -398,10 +428,10 @@ contract AdvanceHubTest is BaseTest {
         _expectOpenRevert(ts, abi.encodeWithSelector(AdvanceHub.NonceUsed.selector));
     }
 
-    function test_openLoan_revertsNonceUsed_forTheSameTermSheetTwice() public {
+    function test_openLoan_revertsAlreadyOpened_forTheSameTermSheetTwice() public {
         TermSheet memory ts = _termSheet();
         _open(ts);
-        _expectOpenRevert(ts, abi.encodeWithSelector(AdvanceHub.NonceUsed.selector));
+        _expectOpenRevert(ts, abi.encodeWithSelector(AdvanceHub.AlreadyOpened.selector));
     }
 
     function test_openLoan_revertsBadSignature_wrongKey() public {
@@ -527,6 +557,7 @@ contract AdvanceHubTest is BaseTest {
         ts = _termSheet(2);
         ts.poolId = POOL_ID_2;
         ts.auctionBlocks = 1;
+        ts.agentCard = address(_mockCard());
         _registerSecondPool();
         _open(ts);
         params = ccaFactory.lastParams();
@@ -543,15 +574,36 @@ contract AdvanceHubTest is BaseTest {
         _expectOpenRevert(_termSheet(), abi.encodeWithSelector(AdvanceHub.NotWethPool.selector));
     }
 
+    function test_openLoan_revertsUnsupportedPool() public {
+        // Native ETH against WETH: no agent token to forward at all.
+        _registerPool(address(0), address(weth));
+        _expectOpenRevert(_termSheet(), abi.encodeWithSelector(AdvanceHub.UnsupportedPool.selector, address(0)));
+
+        // USDC against WETH: the escrow's repayment token cannot also be the agent leg.
+        _registerPool(address(usdc), address(weth));
+        _expectOpenRevert(_termSheet(), abi.encodeWithSelector(AdvanceHub.UnsupportedPool.selector, address(usdc)));
+
+        // An agent leg with no code can never be forwarded to the treasury.
+        address ghost = makeAddr("ghostToken");
+        _registerPool(ghost, address(weth));
+        _expectOpenRevert(_termSheet(), abi.encodeWithSelector(AdvanceHub.UnsupportedPool.selector, ghost));
+    }
+
     function test_openLoan_acceptsWethAsEitherCurrency() public {
-        _registerPool(address(weth), address(type(uint160).max));
+        address highToken = address(type(uint160).max);
+        address lowToken = address(0x1010);
+        vm.etch(highToken, address(agentToken).code);
+        vm.etch(lowToken, address(agentToken).code);
+
+        _registerPool(address(weth), highToken);
         assertEq(fm.getPoolKey(POOL_ID).currency0, address(weth));
         assertEq(_open(), 1);
 
-        _registerSecondPoolWith(address(0x10));
+        _registerSecondPoolWith(lowToken);
         assertEq(fm.getPoolKey(POOL_ID_2).currency1, address(weth));
         TermSheet memory ts = _termSheet(2);
         ts.poolId = POOL_ID_2;
+        ts.agentCard = address(_mockCard());
         assertEq(_open(ts), 2);
     }
 
@@ -609,6 +661,64 @@ contract AdvanceHubTest is BaseTest {
             ts.agentCard = address(raw);
             _expectOpenRevert(ts, abi.encodeWithSelector(AdvanceHub.InvalidCard.selector));
         }
+    }
+
+    function test_openLoan_revertsCardInUse_whileAnotherLoanIsLive() public {
+        uint256 first = _open();
+        assertEq(hub.liveLoanOf(address(card)), first);
+
+        _registerSecondPool();
+        TermSheet memory ts = _termSheet(2);
+        ts.poolId = POOL_ID_2;
+        _expectOpenRevert(ts, abi.encodeWithSelector(AdvanceHub.CardInUse.selector, first));
+
+        // Still in use once the loan is active, and once it has defaulted.
+        _settle(first, 3e6, true);
+        _expectOpenRevert(ts, abi.encodeWithSelector(AdvanceHub.CardInUse.selector, first));
+        _warpPastGrace(first);
+        hub.markDefault(first);
+        _assertStatus(first, IAdvance.LoanStatus.Defaulted);
+        vm.warp(T0); // back inside the second term sheet's deadline
+        _expectOpenRevert(ts, abi.encodeWithSelector(AdvanceHub.CardInUse.selector, first));
+    }
+
+    function test_openLoan_freesTheCardOnceTheLoanIsRepaid() public {
+        uint256 first = _openActive(3e6);
+        _repay(first, CAP_USDC);
+        _assertStatus(first, IAdvance.LoanStatus.Repaid);
+        assertEq(hub.liveLoanOf(address(card)), 0);
+
+        _registerSecondPool();
+        TermSheet memory ts = _termSheet(2);
+        ts.poolId = POOL_ID_2;
+        uint256 second = _open(ts);
+        assertEq(second, 2);
+        assertEq(hub.liveLoanOf(address(card)), second);
+    }
+
+    function test_openLoan_freesTheCardOnceTheAuctionFails() public {
+        uint256 first = _open();
+        _settle(first, 0, false);
+        _assertStatus(first, IAdvance.LoanStatus.Failed);
+        assertEq(hub.liveLoanOf(address(card)), 0);
+
+        TermSheet memory ts = _termSheet(2);
+        _onboard(ts);
+        assertEq(_open(ts), 2);
+    }
+
+    function test_openLoan_revertsAlreadyOpened_evenAfterUnderwriterRotation() public {
+        TermSheet memory ts = _termSheet();
+        _open(ts);
+
+        uint256 newKey = 0xC0FFEE;
+        vm.prank(owner);
+        hub.setUnderwriter(vm.addr(newKey));
+
+        bytes memory signature = _signWith(newKey, ts);
+        vm.prank(treasury);
+        vm.expectRevert(AdvanceHub.AlreadyOpened.selector);
+        hub.openLoan(ts, signature);
     }
 
     function test_openLoan_revertsEscrowNotBeneficiary_whenNotOnboarded() public {
@@ -676,6 +786,9 @@ contract AdvanceHubTest is BaseTest {
         _expectOpenRevert(ts, abi.encodeWithSelector(AdvanceHub.InvalidCard.selector));
 
         ts.agentCard = address(card);
+        _expectOpenRevert(ts, abi.encodeWithSelector(AdvanceHub.CardInUse.selector, 1));
+
+        ts.agentCard = address(_mockCard());
         _expectOpenRevert(ts, abi.encodeWithSelector(AdvanceHub.EscrowNotBeneficiary.selector, 0, CREATOR_SHARES));
     }
 
@@ -803,21 +916,12 @@ contract AdvanceHubTest is BaseTest {
         Vm.AccountAccess[] memory accesses = vm.stopAndReturnStateDiff();
 
         AdvanceHub.Loan memory loan = hub.loan(loanId);
-        (VmSafe.AccountAccessKind[] memory kinds, address[] memory targets, bytes4[] memory selectors) =
-            _accessesFrom(accesses, address(hub));
+        (address[] memory targets, bytes4[] memory selectors) = _callsFrom(accesses, address(hub));
 
-        VmSafe.AccountAccessKind delegatecall = VmSafe.AccountAccessKind.DelegateCall;
-        VmSafe.AccountAccessKind create = VmSafe.AccountAccessKind.Create;
-        VmSafe.AccountAccessKind call = VmSafe.AccountAccessKind.Call;
-        VmSafe.AccountAccessKind[12] memory expectedKinds =
-            [delegatecall, create, delegatecall, create, delegatecall, create, call, call, call, call, call, call];
-        address[12] memory expectedTargets = [
-            address(0), // EscrowDeployer library
-            loan.escrow,
-            address(0), // LoanDeployer library
-            loan.creditLine,
-            address(0), // LoanDeployer library
-            loan.note,
+        address[9] memory expectedTargets = [
+            address(escrowDeployer),
+            address(loanDeployer),
+            address(loanDeployer),
             address(ccaFactory),
             loan.note,
             loan.auction,
@@ -825,13 +929,10 @@ contract AdvanceHubTest is BaseTest {
             loan.note,
             loan.escrow
         ];
-        bytes4[12] memory expectedSelectors = [
+        bytes4[9] memory expectedSelectors = [
             EscrowDeployer.deploy.selector,
-            bytes4(0),
             LoanDeployer.deployCreditLine.selector,
-            bytes4(0),
             LoanDeployer.deployNote.selector,
-            bytes4(0),
             ICCAFactory.create.selector,
             RevenueNote.mint.selector,
             ICCA.onTokensReceived.selector,
@@ -839,11 +940,10 @@ contract AdvanceHubTest is BaseTest {
             RevenueNote.initialize.selector,
             RevenueEscrow.bind.selector
         ];
-        assertEq(kinds.length, expectedKinds.length, "access count");
-        for (uint256 i; i < expectedKinds.length; ++i) {
-            assertEq(uint8(kinds[i]), uint8(expectedKinds[i]), "access kind");
-            if (expectedTargets[i] != address(0)) assertEq(targets[i], expectedTargets[i], "access target");
-            if (expectedSelectors[i] != bytes4(0)) assertEq(selectors[i], expectedSelectors[i], "access selector");
+        assertEq(targets.length, expectedTargets.length, "call count");
+        for (uint256 i; i < expectedTargets.length; ++i) {
+            assertEq(targets[i], expectedTargets[i], "call target");
+            assertEq(selectors[i], expectedSelectors[i], "call selector");
         }
     }
 
@@ -852,6 +952,7 @@ contract AdvanceHubTest is BaseTest {
         _registerSecondPool();
         TermSheet memory ts = _termSheet(2);
         ts.poolId = POOL_ID_2;
+        ts.agentCard = address(_mockCard());
         uint256 second = _open(ts);
 
         assertEq(second, 2);
@@ -977,6 +1078,7 @@ contract AdvanceHubTest is BaseTest {
             if (!graduated) {
                 _registerSecondPool();
                 ts.poolId = POOL_ID_2;
+                ts.agentCard = address(_mockCard());
             }
             uint256 loanId = _open(ts);
             MockAuction auction = _auction(loanId);
@@ -1260,12 +1362,12 @@ contract AdvanceHubTest is BaseTest {
 
         (address[] memory targets, bytes4[] memory selectors) = _callsFrom(accesses, address(hub));
         address[5] memory expectedTargets =
-            [address(card), address(card), loan.creditLine, address(reputation), loan.escrow];
+            [address(card), address(card), address(reputation), loan.creditLine, loan.escrow];
         bytes4[5] memory expectedSelectors = [
             IAgentCard.freeze.selector,
             IAgentCard.returnFunds.selector,
-            CreditLine.freeze.selector,
             IReputationRegistry.giveFeedback.selector,
+            CreditLine.freeze.selector,
             RevenueEscrow.closeIfRepaid.selector
         ];
         assertEq(targets.length, expectedTargets.length, "call count");
@@ -1324,27 +1426,85 @@ contract AdvanceHubTest is BaseTest {
         assertEq(mockCard.returnFundsCalls(), 1);
     }
 
-    function test_markDefault_cardRepayingMidDefault_endsRepaidWithoutReverting() public {
+    function test_markDefault_cardCannotRepayFromInsideItsHook() public {
         HarvestingCard hostile = new HarvestingCard(address(hub), address(usdc), cardOwner, _payees());
         TermSheet memory ts = _termSheet();
         ts.agentCard = address(hostile);
         uint256 loanId = _open(ts);
         _settle(loanId, 3e6, true);
         _warpPastGrace(loanId);
-        hostile.setEscrow(_fundEscrow(loanId, CAP_USDC));
-        CreditLine creditLine = _creditLine(loanId);
+        RevenueEscrow escrow = _fundEscrow(loanId, CAP_USDC);
+        hostile.setEscrow(escrow);
 
+        // The hook tries to harvest the escrow, which costs far more than `CARD_HOOK_GAS`, so it
+        // runs out of its stipend and is skipped; the default is unaffected.
+        vm.expectEmit(address(hub));
+        emit AdvanceHub.CardHookSkipped(loanId, IAgentCard.freeze.selector);
         hub.markDefault(loanId);
 
-        assertTrue(hostile.harvested());
+        assertFalse(hostile.harvested(), "the hook could not finish its harvest");
+        _assertStatus(loanId, IAdvance.LoanStatus.Defaulted);
+        assertEq(uint8(_creditLine(loanId).state()), uint8(CreditLine.State.Frozen));
+        assertEq(reputation.feedbackCount(), 1);
+        _assertFeedback(0, -100, "default");
+
+        // The escrow's USDC still repays noteholders on the next harvest.
+        vm.prank(keeper);
+        escrow.harvest(0);
         _assertStatus(loanId, IAdvance.LoanStatus.Repaid);
         assertEq(_note(loanId).totalRepaid(), CAP_USDC);
-        assertEq(uint8(creditLine.state()), uint8(CreditLine.State.Frozen));
-        assertEq(usdc.balanceOf(treasury), 3e6, "cap already met: principal goes to the treasury");
-        assertEq(uint8(_escrow(loanId).phase()), uint8(RevenueEscrow.Phase.Closed));
-        assertEq(reputation.feedbackCount(), 2);
+    }
+
+    function test_markDefault_gasBurningCardCannotBlockTheDefault() public {
+        GasBurningCard hostile = new GasBurningCard(address(hub), address(usdc), cardOwner, _payees());
+        TermSheet memory ts = _termSheet();
+        ts.agentCard = address(hostile);
+        uint256 loanId = _open(ts);
+        _settle(loanId, 3e6, true);
+        _warpPastGrace(loanId);
+
+        // A realistic transaction gas budget: both hooks burn their whole stipend and the rest of
+        // the default still has to fit.
+        vm.prank(keeper);
+        hub.markDefault{gas: 1_000_000}(loanId);
+
+        _assertStatus(loanId, IAdvance.LoanStatus.Defaulted);
+        assertEq(uint8(_creditLine(loanId).state()), uint8(CreditLine.State.Frozen));
+        assertEq(_note(loanId).totalRepaid(), 3e6, "undrawn principal still reaches noteholders");
+        assertEq(reputation.feedbackCount(), 1);
+        _assertFeedback(0, -100, "default");
+    }
+
+    function test_onRepaid_gasBurningCardCannotBlockRepayment() public {
+        GasBurningCard hostile = new GasBurningCard(address(hub), address(usdc), cardOwner, _payees());
+        TermSheet memory ts = _termSheet();
+        ts.agentCard = address(hostile);
+        uint256 loanId = _open(ts);
+        _settle(loanId, 3e6, true);
+        RevenueEscrow escrow = _fundEscrow(loanId, CAP_USDC);
+
+        vm.prank(keeper);
+        escrow.harvest{gas: 2_000_000}(0);
+
+        _assertStatus(loanId, IAdvance.LoanStatus.Repaid);
+        assertEq(_note(loanId).totalRepaid(), CAP_USDC);
+        assertEq(uint8(_creditLine(loanId).state()), uint8(CreditLine.State.Closed));
+        assertEq(reputation.feedbackCount(), 1);
         _assertFeedback(0, 100, "repaid");
-        _assertFeedback(1, -100, "default");
+    }
+
+    function test_markDefault_gasBurningRegistryCannotBlockTheDefault() public {
+        uint256 loanId = _openActive(3e6);
+        _warpPastGrace(loanId);
+        reputation.setBurnsGas(true);
+
+        vm.prank(keeper);
+        hub.markDefault{gas: 1_500_000}(loanId);
+
+        _assertStatus(loanId, IAdvance.LoanStatus.Defaulted);
+        assertEq(uint8(_creditLine(loanId).state()), uint8(CreditLine.State.Frozen));
+        assertEq(_note(loanId).totalRepaid(), 3e6, "undrawn principal still reaches noteholders");
+        assertEq(reputation.feedbackCount(), 0);
     }
 
     function test_markDefault_reputationFailureIsSkipped() public {
@@ -1452,13 +1612,31 @@ contract AdvanceHubTest is BaseTest {
         hub.abort(ts);
     }
 
-    function test_abort_twiceReverts() public {
+    function test_abort_twiceRevertsWithAHubError() public {
         TermSheet memory ts = _termSheet();
         _onboard(ts);
         vm.warp(uint256(ts.deadline) + 1);
         hub.abort(ts);
-        vm.expectRevert(RevenueEscrow.WrongPhase.selector);
+        vm.expectRevert(AdvanceHub.AlreadyAborted.selector);
         hub.abort(ts);
+    }
+
+    function test_termSheetStatus_reportsAbortedAndLoanStatuses() public {
+        TermSheet memory aborting = _termSheet();
+        assertEq(uint8(hub.termSheetStatus(_hash(aborting))), uint8(IAdvance.LoanStatus.None));
+
+        _onboard(aborting);
+        vm.warp(uint256(aborting.deadline) + 1);
+        hub.abort(aborting);
+        assertTrue(hub.aborted(_hash(aborting)));
+        assertEq(uint8(hub.termSheetStatus(_hash(aborting))), uint8(IAdvance.LoanStatus.Aborted));
+
+        vm.warp(T0);
+        TermSheet memory opening = _termSheet(2);
+        uint256 loanId = _open(opening);
+        assertEq(uint8(hub.termSheetStatus(_hash(opening))), uint8(IAdvance.LoanStatus.Auction));
+        _settle(loanId, 3e6, true);
+        assertEq(uint8(hub.termSheetStatus(_hash(opening))), uint8(IAdvance.LoanStatus.Active));
     }
 
     // ---------------------------------------------------------------------------------------

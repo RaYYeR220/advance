@@ -28,9 +28,16 @@ import {RevenueNote} from "./RevenueNote.sol";
 /// @dev The owner can only rotate the underwriter and hand over ownership in two steps; no
 /// function lets the owner move loan funds or change loan terms. Optional external hooks (the
 /// agent card, the reputation registry) never block a loan's lifecycle: they are guarded by code
-/// checks and low-level calls, and a failure only emits an event. Loan contracts are created by
-/// the hub itself through the linked `EscrowDeployer` and `LoanDeployer` libraries, which hold
-/// their creation code outside the hub's own initcode.
+/// checks and low-level calls given a bounded gas stipend, and a failure only emits an event.
+/// Loan contracts are created through the `EscrowDeployer` and `LoanDeployer` helper contracts,
+/// which hold their creation code outside the hub's own initcode and record this hub as the owner
+/// of everything they deploy.
+///
+/// Invariant: an agent card backs at most one live loan at a time. `AgentCard.returnFunds` sweeps
+/// the card's whole balance and `frozen` is a single flag, so sharing a card across live loans
+/// would let one loan's default seize another loan's drawn USDC. `openLoan` therefore rejects a
+/// card already attached to a loan in Auction, Active or Defaulted, and the binding is released
+/// when the loan reaches Repaid or Failed.
 contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
     /// @notice Immutable deployment configuration.
     /// @param usdc USDC token loans are raised, drawn and repaid in.
@@ -92,6 +99,21 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
     /// @dev ERC-8004 feedback value posted when a loan defaults.
     int128 internal constant DEFAULT_FEEDBACK = -100;
 
+    /// @notice Gas forwarded to an agent card hook. Bounded because the card is agent-controlled
+    /// code: without a cap, a card that burns everything it is given in `freeze` and `returnFunds`
+    /// would leave too little gas to finish `markDefault`, and the loan could never be defaulted.
+    /// The real card needs far less (a storage write plus, for `returnFunds`, one USDC transfer).
+    uint256 public constant CARD_HOOK_GAS = 200_000;
+    /// @notice Gas forwarded to the reputation registry. Also bounded, though the registry is
+    /// protocol configuration rather than agent-controlled: a first feedback from a fresh client
+    /// measured ~191k gas against the deployed Base registry, so this leaves real headroom while
+    /// still capping what a future registry can consume.
+    uint256 public constant REPUTATION_HOOK_GAS = 500_000;
+
+    /// @dev Most revert data kept from an optional hook, enough for a custom error and its
+    /// arguments. A hostile callee could otherwise return megabytes and charge this call for the copy.
+    uint256 internal constant MAX_REASON_BYTES = 256;
+
     /// @notice USDC token loans are raised, drawn and repaid in.
     address internal immutable usdc;
     /// @notice WETH token; the pool leg fees are underwritten against.
@@ -113,6 +135,11 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
     /// @notice Default-timer activity threshold passed to escrows.
     uint256 internal immutable minActivityUsdc;
 
+    /// @notice Deploys each loan's escrow at its predictable CREATE2 address.
+    EscrowDeployer public immutable escrowDeployer;
+    /// @notice Deploys each loan's credit line and note.
+    LoanDeployer public immutable loanDeployer;
+
     /// @notice The owner; may only rotate `underwriter` and transfer ownership.
     address public owner;
     /// @notice The address `transferOwnership` nominated, until it calls `acceptOwnership`.
@@ -128,6 +155,10 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
     mapping(bytes32 termSheetHash => uint256 loanId) public loanIdOf;
     /// @notice Whether an underwriter's nonce has been consumed by an opened loan.
     mapping(address signer => mapping(uint256 nonce => bool)) public nonceUsed;
+    /// @notice The loan a card is currently attached to (0 once that loan is Repaid or Failed).
+    mapping(address card => uint256 loanId) public liveLoanOf;
+    /// @notice Whether a term sheet's escrow was released by `abort`.
+    mapping(bytes32 termSheetHash => bool) public aborted;
 
     /// @notice Emitted when a loan is opened and its contracts are wired.
     /// @param loanId The new loan id.
@@ -209,8 +240,17 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
     /// @param code 1 auction length, 2 floor, 3 note supply, 4 minimum principal, 5 draw limit,
     /// draw period or grace period, 6 expected shares.
     error BadTerms(uint8 code);
-    /// @notice Thrown when the term sheet's pool does not have WETH as one of its currencies.
+    /// @notice Thrown when the term sheet's pool does not have exactly one WETH currency.
     error NotWethPool();
+    /// @notice Thrown when the pool's non-WETH currency cannot back a loan: native ETH, this hub's
+    /// USDC, or an address with no code.
+    /// @param agentToken The offending currency.
+    error UnsupportedPool(address agentToken);
+    /// @notice Thrown when the term sheet's card already backs a live loan.
+    /// @param loanId The loan currently holding the card.
+    error CardInUse(uint256 loanId);
+    /// @notice Thrown when `abort` is called for a term sheet that was already aborted.
+    error AlreadyAborted();
     /// @notice Thrown when the term sheet's card is not a contract wired to this hub and USDC with
     /// at least one payee and a nonzero owner.
     error InvalidCard();
@@ -228,7 +268,7 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
     error NotDelinquent(uint64 eligibleAt);
     /// @notice Thrown when `abort` is called before the term sheet's deadline has passed.
     error NotExpired();
-    /// @notice Thrown when `abort` is called for a term sheet that opened a loan.
+    /// @notice Thrown when a term sheet that already opened a loan is opened or aborted again.
     error AlreadyOpened();
     /// @notice Thrown when a caller other than `owner` calls an owner-only function.
     error NotOwner();
@@ -238,15 +278,27 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
     error ZeroAddress();
 
     /// @dev Reverts `ZeroAddress` if any of `usdc`, `weth`, `ccaFactory`, `router`, `ethUsdFeed`,
-    /// `underwriter_` or `owner_` is zero.
+    /// `underwriter_`, `owner_`, `escrowDeployer_` or `loanDeployer_` is zero.
     /// @param cfg Immutable deployment configuration.
     /// @param underwriter_ The initial underwriter key.
     /// @param owner_ The initial owner.
-    constructor(Config memory cfg, address underwriter_, address owner_) EIP712("Advance", "1") {
+    /// @param escrowDeployer_ Deploys each loan's escrow; deployed separately, called never delegatecalled.
+    /// @param loanDeployer_ Deploys each loan's credit line and note; likewise called, never delegatecalled.
+    constructor(
+        Config memory cfg,
+        address underwriter_,
+        address owner_,
+        EscrowDeployer escrowDeployer_,
+        LoanDeployer loanDeployer_
+    ) EIP712("Advance", "1") {
         if (
             cfg.usdc == address(0) || cfg.weth == address(0) || cfg.ccaFactory == address(0) || cfg.router == address(0)
                 || cfg.ethUsdFeed == address(0) || underwriter_ == address(0) || owner_ == address(0)
+                || address(escrowDeployer_) == address(0) || address(loanDeployer_) == address(0)
         ) revert ZeroAddress();
+
+        escrowDeployer = escrowDeployer_;
+        loanDeployer = loanDeployer_;
 
         usdc = cfg.usdc;
         weth = cfg.weth;
@@ -282,7 +334,7 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
     /// @param ts The term sheet.
     /// @return The predicted escrow address.
     function predictEscrow(TermSheet calldata ts) public view returns (address) {
-        return EscrowDeployer.predict(_escrowConfig(ts), TermSheetLib.structHash(ts), address(this));
+        return escrowDeployer.predict(_escrowConfig(ts), TermSheetLib.structHash(ts));
     }
 
     /// @notice Deploys the escrow for `ts` at `predictEscrow(ts)` if it is not deployed yet.
@@ -299,7 +351,8 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
 
     /// @notice Opens a loan from an underwriter-signed term sheet. Only callable by the term
     /// sheet's agent treasury, at or before its deadline, once per underwriter nonce. Checks, in
-    /// order: caller, deadline, nonce, signature, term ranges, WETH pool, card, then that the
+    /// order: caller, deadline, whether this term sheet already opened a loan, nonce, signature,
+    /// term ranges, pool, card (including that it does not already back a live loan), then that the
     /// escrow holds at least `expectedShares`. Deploys the credit line and note, creates the CCA
     /// auction with the credit line as funds and tokens recipient, mints the note supply into the
     /// auction, and wires the credit line, note and escrow to each other.
@@ -310,9 +363,12 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
         if (msg.sender != ts.agentTreasury) revert NotBorrower();
         // forge-lint: disable-next-line(block-timestamp) the term sheet deadline is a timestamp by design
         if (block.timestamp > ts.deadline) revert Expired();
+        bytes32 termSheetHash = TermSheetLib.structHash(ts);
+        // A rotated underwriter could re-sign a term sheet whose nonce was consumed under the
+        // previous key, so the term sheet itself is checked too, not just the nonce.
+        if (loanIdOf[termSheetHash] != 0) revert AlreadyOpened();
         address signer = underwriter;
         if (nonceUsed[signer][ts.nonce]) revert NonceUsed();
-        bytes32 termSheetHash = TermSheetLib.structHash(ts);
         (address recovered, ECDSA.RecoverError recoverError,) =
             ECDSA.tryRecover(_hashTypedDataV4(termSheetHash), signature);
         if (recoverError != ECDSA.RecoverError.NoError || recovered != signer) revert BadSignature();
@@ -320,8 +376,12 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
         _checkTerms(ts);
         _checkPool(ts);
         _checkCard(ts.agentCard);
+        uint256 liveLoan = liveLoanOf[ts.agentCard];
+        if (liveLoan != 0) revert CardInUse(liveLoan);
 
-        address escrow = _deployEscrow(ts, termSheetHash);
+        // The escrow holds the agent's shares at its CREATE2 address whether or not it is deployed
+        // yet, so the shares can be checked before anything is written or deployed.
+        address escrow = escrowDeployer.predict(_escrowConfig(ts), termSheetHash);
         uint256 shares = IDopplerFeesManager(ts.feesManager).getShares(ts.poolId, escrow);
         // `expectedShares` is nonzero (BadTerms 6), so this also requires shares > 0.
         if (shares < ts.expectedShares) revert EscrowNotBeneficiary(shares, ts.expectedShares);
@@ -329,10 +389,13 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
         nonceUsed[signer][ts.nonce] = true;
         loanId = ++loanCount;
         loanIdOf[termSheetHash] = loanId;
+        liveLoanOf[ts.agentCard] = loanId;
+
+        escrow = _deployEscrow(ts, termSheetHash);
 
         address creditLine =
-            LoanDeployer.deployCreditLine(usdc, ts.agentCard, ts.agentTreasury, ts.drawLimit, ts.drawPeriod);
-        address note = LoanDeployer.deployNote(loanId, usdc);
+            loanDeployer.deployCreditLine(usdc, ts.agentCard, ts.agentTreasury, ts.drawLimit, ts.drawPeriod);
+        address note = loanDeployer.deployNote(loanId, usdc);
         address auction = ICCAFactory(ccaFactory)
             .create(note, ts.noteSupply, abi.encode(_auctionParameters(ts, creditLine)), bytes32(loanId));
 
@@ -379,6 +442,7 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
             escrow.activate();
         } else {
             loan_.status = LoanStatus.Failed;
+            delete liveLoanOf[loan_.ts.agentCard];
             emit LoanFailed(loanId);
             escrow.release();
         }
@@ -397,6 +461,7 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
         if (status != LoanStatus.Active && status != LoanStatus.Defaulted) revert WrongStatus(status);
 
         loan_.status = LoanStatus.Repaid;
+        delete liveLoanOf[loan_.ts.agentCard];
         emit LoanRepaid(loanId, RevenueNote(loan_.note).totalRepaid());
 
         if (status == LoanStatus.Active) {
@@ -413,11 +478,13 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
 
     /// @notice Marks an Active loan defaulted once its escrow has gone longer than the grace period
     /// without revenue. Callable by anyone. Freezes the card and returns its USDC to the credit
-    /// line, freezes the credit line (its balance goes to noteholders up to the cap, the rest to
-    /// the treasury), posts -100 "default" feedback, and closes the escrow if that already filled
-    /// the cap (which re-enters `onRepaid` and ends the loan Repaid). The escrow keeps repaying
-    /// noteholders from fees otherwise. A failing card hook, registry call or escrow close never
-    /// reverts the default.
+    /// line, posts -100 "default" feedback, freezes the credit line (its balance goes to
+    /// noteholders up to the cap, the rest to the treasury), and closes the escrow if that already
+    /// filled the cap (which re-enters `onRepaid` and ends the loan Repaid). The escrow keeps
+    /// repaying noteholders from fees otherwise. A failing card hook, registry call or escrow close
+    /// never reverts the default, and each optional hook runs on a bounded gas stipend. If a card
+    /// hook repays the loan in the middle of the default, the loan is already Repaid by the time
+    /// feedback would be posted, so only the +100 stands.
     /// @param loanId The loan id.
     function markDefault(uint256 loanId) external {
         Loan storage loan_ = _loans[loanId];
@@ -435,8 +502,10 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
         address card = loan_.ts.agentCard;
         _callCard(loanId, card, abi.encodeCall(IAgentCard.freeze, ()));
         _callCard(loanId, card, abi.encodeCall(IAgentCard.returnFunds, (creditLine)));
+        if (loan_.status == LoanStatus.Defaulted) {
+            _postFeedback(loanId, loan_.ts, DEFAULT_FEEDBACK, "default");
+        }
         CreditLine(creditLine).freeze();
-        _postFeedback(loanId, loan_.ts, DEFAULT_FEEDBACK, "default");
         try escrow.closeIfRepaid() returns (bool) {}
         catch (bytes memory reason) {
             // forge-lint: disable-next-line(reentrancy-events) the failure is only known after the call
@@ -446,14 +515,16 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
 
     /// @notice Releases the escrow of a term sheet that never opened a loan, returning its fee
     /// shares and balances to the agent treasury. Callable by anyone after the deadline; deploys
-    /// the escrow first if needed.
+    /// the escrow first if needed. Records the term sheet as aborted, so it can only happen once.
     /// @param ts The term sheet.
     function abort(TermSheet calldata ts) external {
         bytes32 termSheetHash = TermSheetLib.structHash(ts);
         if (loanIdOf[termSheetHash] != 0) revert AlreadyOpened();
+        if (aborted[termSheetHash]) revert AlreadyAborted();
         // forge-lint: disable-next-line(block-timestamp) the term sheet deadline is a timestamp by design
         if (block.timestamp <= ts.deadline) revert NotExpired();
 
+        aborted[termSheetHash] = true;
         emit LoanAborted(termSheetHash);
         RevenueEscrow(payable(_deployEscrow(ts, termSheetHash))).release();
     }
@@ -467,6 +538,15 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
     /// @return The loan record.
     function loan(uint256 loanId) external view returns (Loan memory) {
         return _loans[loanId];
+    }
+
+    /// @notice The lifecycle status a term sheet reached: `Aborted` if its escrow was released
+    /// without a loan, otherwise its loan's status (`None` if it never opened one).
+    /// @param termSheetHash The term sheet's EIP-712 struct hash.
+    /// @return The term sheet's status.
+    function termSheetStatus(bytes32 termSheetHash) external view returns (LoanStatus) {
+        if (aborted[termSheetHash]) return LoanStatus.Aborted;
+        return _loans[loanIdOf[termSheetHash]].status;
     }
 
     /// @notice The hub's immutable deployment configuration.
@@ -525,7 +605,7 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
 
     /// @dev Deploys (or finds) the escrow for `ts` salted by its struct hash.
     function _deployEscrow(TermSheet calldata ts, bytes32 termSheetHash) internal returns (address) {
-        return EscrowDeployer.deploy(_escrowConfig(ts), termSheetHash);
+        return escrowDeployer.deploy(_escrowConfig(ts), termSheetHash);
     }
 
     /// @dev The escrow configuration for `ts`: this hub, the term sheet's pool and treasury, and
@@ -561,10 +641,19 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
         if (ts.expectedShares == 0) revert BadTerms(6);
     }
 
-    /// @dev Reverts `NotWethPool` unless WETH is one of the pool's two currencies.
+    /// @dev Reverts unless the pool pairs exactly one WETH leg with an agent token the escrow can
+    /// actually forward: not native ETH, not this hub's USDC (which the escrow pays noteholders in)
+    /// and not a code-less address. Rejecting here means an unsupported pool fails with a hub error
+    /// rather than deep inside `RevenueEscrow.bind`.
     function _checkPool(TermSheet calldata ts) internal view {
         PoolKey memory key = IDopplerFeesManager(ts.feesManager).getPoolKey(ts.poolId);
-        if (key.currency0 != weth && key.currency1 != weth) revert NotWethPool();
+        bool wethIsCurrency0 = key.currency0 == weth;
+        if (wethIsCurrency0 == (key.currency1 == weth)) revert NotWethPool();
+
+        address agentToken = wethIsCurrency0 ? key.currency1 : key.currency0;
+        if (agentToken == address(0) || agentToken == usdc || agentToken.code.length == 0) {
+            revert UnsupportedPool(agentToken);
+        }
     }
 
     /// @dev Reverts `InvalidCard` unless `card` is a contract reporting this hub, this hub's USDC,
@@ -583,6 +672,22 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
                 || cardUsdc != uint256(uint160(usdc)) || cardOwner == 0 || cardOwner > type(uint160).max
                 || payeeCount == 0
         ) revert InvalidCard();
+    }
+
+    /// @dev Calls `target` with `data` on a `stipend` gas budget, copying at most
+    /// `MAX_REASON_BYTES` of whatever it returns. Never reverts.
+    function _callBounded(address target, uint256 stipend, bytes memory data)
+        internal
+        returns (bool ok, bytes memory reason)
+    {
+        reason = new bytes(MAX_REASON_BYTES);
+        assembly ("memory-safe") {
+            ok := call(stipend, target, 0, add(data, 0x20), mload(data), 0, 0)
+            let size := returndatasize()
+            if gt(size, MAX_REASON_BYTES) { size := MAX_REASON_BYTES }
+            returndatacopy(add(reason, 0x20), 0, size)
+            mstore(reason, size)
+        }
     }
 
     /// @dev Static-calls `target` with `selector` and no arguments, and reads the word at `offset`
@@ -629,14 +734,16 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
         });
     }
 
-    /// @dev Calls an optional card hook without ever reverting: skipped when the card has no code,
-    /// and a failed call is ignored. Return data is never copied. Emits `CardHookSkipped` with the
-    /// hook's selector in both cases.
+    /// @dev Calls an optional card hook without ever reverting and without letting it starve the
+    /// rest of the call: skipped when the card has no code, given only `CARD_HOOK_GAS`, and a failed
+    /// or out-of-gas call is ignored. Return data is never copied. Emits `CardHookSkipped` with the
+    /// hook's selector in every skipped case.
     function _callCard(uint256 loanId, address card, bytes memory data) internal {
         bool ok = false;
         if (card.code.length != 0) {
+            uint256 stipend = CARD_HOOK_GAS;
             assembly ("memory-safe") {
-                ok := call(gas(), card, 0, add(data, 0x20), mload(data), 0, 0)
+                ok := call(stipend, card, 0, add(data, 0x20), mload(data), 0, 0)
             }
         }
         if (!ok) {
@@ -646,9 +753,11 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
         }
     }
 
-    /// @dev Posts ERC-8004 feedback about the loan's outcome without ever reverting: skipped when
-    /// the term sheet has no agent id or the registry has no code, and a failed call is reported
-    /// with its revert data.
+    /// @dev Posts ERC-8004 feedback about the loan's outcome without ever reverting and without
+    /// letting the registry starve the rest of the call: skipped when the term sheet has no agent id
+    /// or the registry has no code, given only `REPUTATION_HOOK_GAS`, and a failed call is reported
+    /// with the first `MAX_REASON_BYTES` of its revert data (copying it in full would let a hostile
+    /// registry charge this call for an unbounded copy).
     function _postFeedback(uint256 loanId, TermSheet storage ts, int128 value, string memory tag) internal {
         address registry = reputationRegistry;
         uint256 agentId = ts.agentId;
@@ -657,9 +766,9 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
             emit ReputationSkipped(loanId, "");
             return;
         }
-        (bool ok, bytes memory reason) = registry.call(
-            abi.encodeCall(IReputationRegistry.giveFeedback, (agentId, value, 0, "advance", tag, "", "", ts.memoHash))
-        );
+        bytes memory callData =
+            abi.encodeCall(IReputationRegistry.giveFeedback, (agentId, value, 0, "advance", tag, "", "", ts.memoHash));
+        (bool ok, bytes memory reason) = _callBounded(registry, REPUTATION_HOOK_GAS, callData);
         // The outcome is only known after the call.
         // forge-lint: disable-next-line(reentrancy-events)
         if (ok) emit ReputationPosted(loanId, agentId, value, tag);
