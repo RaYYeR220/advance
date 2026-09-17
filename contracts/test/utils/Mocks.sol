@@ -107,8 +107,8 @@ contract MockEIP3009USDC is ERC20 {
         bytes32 nonce,
         bytes memory signature
     ) external {
-        // forge-lint: disable-next-line(block-timestamp) mirrors FiatTokenV2_2's own validAfter check
-        if (block.timestamp < validAfter) revert AuthorizationNotYetValid();
+        // forge-lint: disable-next-line(block-timestamp) mirrors FiatTokenV2_2's own validAfter check (strictly after)
+        if (block.timestamp <= validAfter) revert AuthorizationNotYetValid();
         // forge-lint: disable-next-line(block-timestamp) mirrors FiatTokenV2_2's own validBefore check
         if (block.timestamp >= validBefore) revert AuthorizationExpired();
         if (authorizationState[from][nonce]) revert AuthorizationAlreadyUsed();
@@ -368,6 +368,30 @@ contract MockCreditLine {
 
     function setState(CreditLine.State state_) external {
         state = state_;
+    }
+}
+
+/// @notice Minimal `draw(uint256)`-only credit line stand-in that transfers a settable, fixed
+/// amount regardless of what was requested -- distinct from the real CreditLine, and deliberately
+/// not implementing its full surface. Used to prove a caller measures what it actually received
+/// instead of trusting the requested amount, and that it only depends on a minimal interface.
+contract MockUnderfillingCreditLine {
+    using SafeERC20 for IERC20;
+
+    IERC20 public immutable token;
+    uint256 public actualAmount;
+
+    constructor(address token_) {
+        token = IERC20(token_);
+    }
+
+    /// @notice Test hook: sets the amount `draw` actually pays out, independent of what is asked.
+    function setActualAmount(uint256 amount) external {
+        actualAmount = amount;
+    }
+
+    function draw(uint256) external {
+        token.safeTransfer(msg.sender, actualAmount);
     }
 }
 
