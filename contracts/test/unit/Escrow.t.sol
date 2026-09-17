@@ -198,6 +198,13 @@ contract RevenueEscrowTest is Test {
         });
     }
 
+    /// @dev A fresh note paid in `usdc_` and initialized with `escrow_` / `creditLine_`.
+    function _wiredNote(address usdc_, address escrow_, address creditLine_) internal returns (RevenueNote wired) {
+        wired = new RevenueNote("Advance Note", "ADVN", address(hub), usdc_);
+        vm.prank(address(hub));
+        wired.initialize(escrow_, creditLine_);
+    }
+
     function _bind() internal {
         vm.prank(address(hub));
         escrow.bind(LOAN_ID, address(note), address(creditLine));
@@ -336,11 +343,24 @@ contract RevenueEscrowTest is Test {
 
     function test_bind_rejectsNoteDenominatedInAnotherToken() public {
         MockERC20 otherUsdc = new MockERC20("Other USD", "OUSD", 6);
-        RevenueNote wrongNote = new RevenueNote("Advance Note", "ADVN", address(hub), address(otherUsdc));
+        RevenueNote wrongNote = _wiredNote(address(otherUsdc), address(escrow), address(creditLine));
 
         vm.prank(address(hub));
         vm.expectRevert(RevenueEscrow.InvalidNote.selector);
         escrow.bind(LOAN_ID, address(wrongNote), address(creditLine));
+    }
+
+    function test_bind_rejectsNoteNotWiredToThisEscrowAndCreditLine() public {
+        RevenueNote uninitialized = new RevenueNote("Advance Note", "ADVN", address(hub), address(usdc));
+        RevenueNote otherEscrow = _wiredNote(address(usdc), makeAddr("otherEscrow"), address(creditLine));
+        RevenueNote otherCreditLine = _wiredNote(address(usdc), address(escrow), makeAddr("otherCreditLine"));
+        RevenueNote[3] memory unwired = [uninitialized, otherEscrow, otherCreditLine];
+
+        for (uint256 i; i < unwired.length; ++i) {
+            vm.prank(address(hub));
+            vm.expectRevert(RevenueEscrow.NoteNotWired.selector);
+            escrow.bind(LOAN_ID, address(unwired[i]), address(creditLine));
+        }
     }
 
     function test_bind_rejectsPoolWithoutSingleEthLeg() public {
@@ -355,9 +375,10 @@ contract RevenueEscrowTest is Test {
             for (uint256 j; j < 4; j += 2) {
                 _registerPool(badPairs[i][j], badPairs[i][j + 1]);
                 escrow = new RevenueEscrow(_config());
+                RevenueNote wiredNote = _wiredNote(address(usdc), address(escrow), address(creditLine));
                 vm.prank(address(hub));
                 vm.expectRevert(RevenueEscrow.UnsupportedPool.selector);
-                escrow.bind(LOAN_ID, address(note), address(creditLine));
+                escrow.bind(LOAN_ID, address(wiredNote), address(creditLine));
             }
         }
     }
@@ -947,6 +968,30 @@ contract RevenueEscrowTest is Test {
         emit RevenueEscrow.Forwarded(address(bad), 800e18);
         escrow.harvest(0);
         assertEq(bad.balanceOf(treasury), 800e18);
+    }
+
+    function test_harvest_overflowForwardFails_reportsOnlyWhatWasForwarded() public {
+        RevertingToken blockingUsdc = new RevertingToken(); // e.g. a blacklisted treasury
+        usdc = blockingUsdc;
+        _deployLoan(address(new MockERC20("Agent", "AGT", 18)), false);
+        _bindAndActivate();
+        blockingUsdc.setBlocked(address(escrow), RevertingToken.Mode.Revert);
+        _accrue(POOL_WETH, 0);
+
+        vm.expectEmit(address(escrow));
+        emit RevenueEscrow.ForwardFailed(address(blockingUsdc), 19e6);
+        vm.expectEmit(address(escrow));
+        emit RevenueEscrow.Harvested(1e16, 24e6, 5e6, 0);
+        assertEq(escrow.harvest(0), 5e6);
+
+        // The note is still repaid and the loan closes; the overflow waits for a retry.
+        assertEq(note.totalRepaid(), 5e6);
+        _assertPhase(RevenueEscrow.Phase.Closed);
+        assertEq(blockingUsdc.balanceOf(address(escrow)), 19e6);
+
+        blockingUsdc.setBlocked(address(0), RevertingToken.Mode.None);
+        escrow.harvest(0);
+        assertEq(blockingUsdc.balanceOf(treasury), 19e6);
     }
 
     function test_harvest_falseReturningAgentToken_emitsForwardFailed() public {

@@ -16,8 +16,12 @@ struct PoolKey {
 /// `poolId` is `bytes32` at the ABI level (Uniswap v4 PoolId = keccak256(abi.encode(PoolKey))).
 interface IDopplerFeesManager {
     /// @notice Pulls LP fees from the pool into the manager, then releases the caller's pro-rata share.
-    /// @return fees0 Fees of currency0 released to the caller.
-    /// @return fees1 Fees of currency1 released to the caller.
+    /// @dev Permissionless, but it only ever pays `msg.sender`; every other beneficiary's share stays
+    /// in the manager until they collect it or `updateBeneficiary` touches them. The return values
+    /// are NOT what the caller received: RevenueEscrow ignores them and reads balances and the
+    /// manager's per-beneficiary accounting instead.
+    /// @return fees0 Pool-wide currency0 fees pulled into the manager by this call (all beneficiaries).
+    /// @return fees1 Pool-wide currency1 fees pulled into the manager by this call (all beneficiaries).
     function collectFees(bytes32 poolId) external returns (uint128 fees0, uint128 fees1);
 
     /// @notice Moves all of the caller's beneficiary shares to `newBeneficiary`.

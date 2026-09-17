@@ -122,7 +122,8 @@ contract RevenueEscrow is ReentrancyGuardTransient {
     /// @param wethIn WETH swapped (0 if the balance was below `MIN_SWAP_WETH`).
     /// @param usdcOut USDC received from the swap.
     /// @param toNotes USDC distributed to the note.
-    /// @param toTreasury USDC above the note's cap, sent to the treasury.
+    /// @param toTreasury USDC above the note's cap actually sent to the treasury (0 if that
+    /// transfer failed; the balance then stays in the escrow for a later retry).
     event Harvested(uint256 wethIn, uint256 usdcOut, uint256 toNotes, uint256 toTreasury);
     /// @notice Emitted when a token balance is sent to the treasury.
     /// @param token The token forwarded.
@@ -159,6 +160,9 @@ contract RevenueEscrow is ReentrancyGuardTransient {
     error UnsupportedPool();
     /// @notice Thrown by `bind` when the note is not denominated in this escrow's USDC.
     error InvalidNote();
+    /// @notice Thrown by `bind` when the note is not initialized with this escrow as its escrow and
+    /// the given credit line as its credit line.
+    error NoteNotWired();
     /// @notice Thrown when the credit line's state does not allow the call (`activate` needs
     /// Active, `release` of a bound loan needs Failed).
     /// @param current The credit line's actual state.
@@ -196,8 +200,9 @@ contract RevenueEscrow is ReentrancyGuardTransient {
         if (msg.sender != address(weth)) IWETH(address(weth)).deposit{value: msg.value}();
     }
 
-    /// @notice Binds this escrow to its loan. Callable once, by the hub. Rejects a note that is
-    /// not paid in this escrow's USDC and a pool whose fees cannot be swapped into repayment.
+    /// @notice Binds this escrow to its loan. Callable once, by the hub, after the note has been
+    /// initialized. Rejects a note that is not paid in this escrow's USDC or not initialized with
+    /// this escrow and `creditLine_`, and a pool whose fees cannot be swapped into repayment.
     /// @param loanId_ The loan id.
     /// @param note_ The loan's revenue note.
     /// @param creditLine_ The loan's credit line.
@@ -206,6 +211,9 @@ contract RevenueEscrow is ReentrancyGuardTransient {
         if (address(note) != address(0)) revert AlreadyBound();
         if (note_ == address(0) || creditLine_ == address(0)) revert ZeroAddress();
         if (address(RevenueNote(note_).usdc()) != address(usdc)) revert InvalidNote();
+        if (RevenueNote(note_).escrow() != address(this) || RevenueNote(note_).creditLine() != creditLine_) {
+            revert NoteNotWired();
+        }
 
         PoolKey memory key = feesManager.getPoolKey(poolId);
         bool ethLeg0 = _isEthLeg(key.currency0);
@@ -241,6 +249,12 @@ contract RevenueEscrow is ReentrancyGuardTransient {
     /// the treasury; reaching the cap closes the escrow and returns the beneficiary shares. The
     /// part of the distribution that came from fee WETH (pro-rata to the swap) counts toward
     /// `minActivityUsdc`, which moves `lastRevenueAt`; donated USDC or WETH never does.
+    ///
+    /// MEV: the swap is public and anyone can call `harvest(0)`, so a searcher can sandwich it.
+    /// The protocol's guarantee is only the oracle bound: `slippageBps` below the Chainlink price,
+    /// plus however far that price lags the market within `maxStaleness`. A higher `minUsdcOut`
+    /// protects a keeper only when submitted through private order flow; a public keeper call can
+    /// be front-run by a sandwiched `harvest(0)`.
     /// @param minUsdcOut Caller-supplied minimum swap output; only raises the oracle bound.
     /// @return repaid USDC distributed to the note by this call.
     function harvest(uint256 minUsdcOut) external nonReentrant returns (uint256 repaid) {
@@ -271,14 +285,14 @@ contract RevenueEscrow is ReentrancyGuardTransient {
         uint256 usdcBalance = usdc.balanceOf(address(this));
         uint256 remainingCap = note_.remainingCap();
         repaid = usdcBalance < remainingCap ? usdcBalance : remainingCap;
-        uint256 toTreasury = usdcBalance - repaid;
 
         if (repaid != 0) {
             _recordActivity(feeUsdcOut < repaid ? feeUsdcOut : repaid);
             usdc.forceApprove(address(note_), repaid);
             note_.distribute(repaid);
         }
-        if (toTreasury != 0) _forward(address(usdc));
+        uint256 toTreasury;
+        if (usdcBalance != repaid) toTreasury = _forward(address(usdc));
 
         emit Harvested(wethIn, usdcOut, repaid, toTreasury);
 
@@ -415,20 +429,21 @@ contract RevenueEscrow is ReentrancyGuardTransient {
     /// @dev Sends the escrow's whole `token` balance to the treasury without ever reverting: the
     /// balance read and the transfer are low-level calls that copy at most 32 bytes of return
     /// data, and any failure (revert, `false`, malformed or missing return data, no code) only
-    /// emits `ForwardFailed`, leaving the balance for a later retry.
-    function _forward(address token) internal {
+    /// emits `ForwardFailed`, leaving the balance for a later retry. Returns the amount actually sent.
+    function _forward(address token) internal returns (uint256 forwarded) {
         (bool readable, uint256 amount) = _tryBalanceOf(token);
         if (!readable) {
             emit ForwardFailed(token, 0);
-            return;
+            return 0;
         }
-        if (amount == 0) return;
+        if (amount == 0) return 0;
 
         if (IERC20(token).trySafeTransfer(treasury, amount)) {
             emit Forwarded(token, amount);
-        } else {
-            emit ForwardFailed(token, amount);
+            return amount;
         }
+        emit ForwardFailed(token, amount);
+        return 0;
     }
 
     /// @dev `token.balanceOf(this)` as a staticcall that never reverts and never copies more than
