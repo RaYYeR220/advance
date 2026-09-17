@@ -29,18 +29,29 @@ interface IFiatTokenMeta {
     function version() external view returns (string memory);
 }
 
+/// @dev Real USDC's EIP-2612 `permit` bytes-signature overload and its nonce counter, used only
+/// to prove a permit-shaped digest can never be mistaken for a payment authorization by this
+/// card's ERC-1271 check.
+interface IFiatTokenPermit {
+    function permit(address owner, address spender, uint256 value, uint256 deadline, bytes memory signature) external;
+    function nonces(address owner) external view returns (uint256);
+}
+
 /// @notice Fork tests exercising AgentCard against the real USDC (FiatTokenV2_2) deployed on
 /// Base mainnet. The bytes-signature overload of `transferWithAuthorization`
 /// (`0xcf092995`) routes a contract `from` through ERC-1271 `isValidSignature`; these tests prove
 /// the card's on-chain policy actually gates real USDC movement -- allowlisted payments succeed,
 /// everything else reverts with the deployed token's own revert strings -- not just a unit-test
 /// mock's approximation of that routing.
-/// @dev Runs only under `FOUNDRY_PROFILE=fork` (`FOUNDRY_PROFILE=fork forge test --match-contract
-/// AgentCardForkTest`); under any other profile `setUp` skips every test in this contract, so a
-/// bare `forge test` never needs network access.
+/// @dev Runs against the `fork` profile (`FOUNDRY_PROFILE=fork forge test --match-contract
+/// AgentCard`), which pins the fork to Base mainnet block 51403692 in `foundry.toml`; `setUp`
+/// additionally skips every test in this contract unless it actually landed on Base (chain id
+/// 8453), so a bare `forge test` never needs network access even if this file is discovered.
 contract AgentCardForkTest is Test {
     address internal constant USDC_ADDRESS = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     IFiatToken internal constant USDC = IFiatToken(USDC_ADDRESS);
+    bytes32 internal constant PERMIT_TYPEHASH =
+        keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
 
     uint256 internal ownerPk = 0xA11CE;
     uint256 internal wrongPk = 0xBAD;
@@ -48,7 +59,7 @@ contract AgentCardForkTest is Test {
     address internal wrongOwner;
     address internal cardHub = makeAddr("cardHub");
     address internal relayer = makeAddr("relayer");
-    /// @dev Bankr LLM gateway payTo from RECON's live x402 402 body (Spike 6).
+    /// @dev Bankr LLM gateway x402 payTo.
     address internal payee = 0x8AEE621035D93Deb3C0C1177fac252dC2dd501a0;
     address internal evil = makeAddr("evil");
 
@@ -59,12 +70,13 @@ contract AgentCardForkTest is Test {
     AgentCard internal card;
 
     function setUp() public {
-        if (!_isForkProfile()) {
+        // The `fork` profile forks Base at a pinned block automatically (see foundry.toml); a
+        // plain `forge test` never forks, so this skips instead of hitting the network or acting
+        // on an unforked chain id.
+        if (block.chainid != 8453) {
             vm.skip(true);
             return;
         }
-
-        vm.createSelectFork(vm.envOr("BASE_RPC_URL", string("https://mainnet.base.org")));
 
         owner = vm.addr(ownerPk);
         wrongOwner = vm.addr(wrongPk);
@@ -83,10 +95,6 @@ contract AgentCardForkTest is Test {
         vm.deal(cardHub, 1 ether);
     }
 
-    function _isForkProfile() internal view returns (bool) {
-        return keccak256(bytes(vm.envOr("FOUNDRY_PROFILE", string("default")))) == keccak256(bytes("fork"));
-    }
-
     function _digest(address to, uint256 value, uint256 va, uint256 vb, bytes32 nonce) internal view returns (bytes32) {
         bytes32 structHash =
             keccak256(abi.encode(card.TRANSFER_WITH_AUTHORIZATION_TYPEHASH(), address(card), to, value, va, vb, nonce));
@@ -103,10 +111,13 @@ contract AgentCardForkTest is Test {
         blob = abi.encode(abi.encodePacked(r, s, v), to, value, va, vb, nonce);
     }
 
-    /// @dev Sanity check that the fork actually landed on the real deployed FiatTokenV2_2.
+    /// @dev Sanity check that the fork actually landed on the real deployed FiatTokenV2_2, at the
+    /// pinned block.
     function test_facts() public view {
         console2.log("block", block.number, "chainid", block.chainid);
         console2.log("name/version", IFiatTokenMeta(USDC_ADDRESS).name(), IFiatTokenMeta(USDC_ADDRESS).version());
+        assertEq(block.number, 51403692);
+        assertEq(IFiatTokenMeta(USDC_ADDRESS).name(), "USD Coin");
         assertEq(IFiatTokenMeta(USDC_ADDRESS).version(), "2");
     }
 
@@ -211,5 +222,29 @@ contract AgentCardForkTest is Test {
         vm.prank(relayer);
         vm.expectRevert(bytes("FiatTokenV2: invalid signature"));
         USDC.transferWithAuthorization(address(card), payee, 1000, 0, vb, nonce, blob);
+    }
+
+    /// @dev The classic ERC-1271 drain: USDC's `permit` bytes overload also routes a contract
+    /// `owner` through `isValidSignature`. `ownerSig` here is a genuine signature over the real
+    /// permit digest (as if the owner key had been tricked into blind-signing it), wrapped in a
+    /// blob whose own decoded fields lie and describe an innocuous allowlisted payment. If the
+    /// card ever approved this, `evil` would walk away with an ERC20 `approve` over the card's
+    /// USDC and could drain it with a plain `transferFrom` -- no EIP-3009 authorization needed
+    /// again. The digest-binding check must still catch it: the card recomputes a
+    /// TransferWithAuthorization-typehash digest from the blob's fields, which can never equal a
+    /// Permit-typehash digest, so `permit` reverts exactly like every other forged request.
+    function test_permitBytesOverload_reverts() public {
+        uint256 value = type(uint256).max;
+        uint256 deadline = block.timestamp + 60;
+        uint256 nonce = IFiatTokenPermit(USDC_ADDRESS).nonces(address(card));
+        bytes32 permitStructHash = keccak256(abi.encode(PERMIT_TYPEHASH, address(card), evil, value, nonce, deadline));
+        bytes32 permitDigest = keccak256(abi.encodePacked("\x19\x01", USDC.DOMAIN_SEPARATOR(), permitStructHash));
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, permitDigest);
+        bytes memory ownerSig = abi.encodePacked(r, s, v);
+        bytes memory blob = abi.encode(ownerSig, payee, uint256(1000), uint256(0), deadline, keccak256("permit-n1"));
+
+        vm.expectRevert(bytes("EIP2612: invalid signature"));
+        IFiatTokenPermit(USDC_ADDRESS).permit(address(card), evil, value, deadline, blob);
     }
 }
