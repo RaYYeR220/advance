@@ -6,7 +6,7 @@ import {AgentCard} from "../../src/AgentCard.sol";
 import {IAgentCard} from "../../src/interfaces/IAgentCard.sol";
 import {CreditLine} from "../../src/CreditLine.sol";
 import {RevenueNote} from "../../src/RevenueNote.sol";
-import {MockAuction, MockHub, MockEIP3009USDC} from "../utils/Mocks.sol";
+import {MockAuction, MockHub, MockEIP3009USDC, MockUnderfillingCreditLine} from "../utils/Mocks.sol";
 
 /// @notice Unit tests for AgentCard: the `isValidSignature` policy (allowlist, cap, authorization
 /// window, digest binding, owner signature, malformed-blob safety, frozen state), `drawCredit`
@@ -198,6 +198,25 @@ contract AgentCardTest is Test {
         assertEq(creditLine.totalDrawn(), 40_000);
     }
 
+    /// A real CreditLine always transfers exactly what was requested or reverts, so it can never
+    /// show whether `CreditDrawn` reports the requested argument or the measured balance delta.
+    /// This credit line stand-in deliberately pays out a different, fixed amount, and only
+    /// implements `draw(uint256)` -- proving both that the event reflects what was actually
+    /// received and that `drawCredit` only depends on that minimal interface.
+    function test_drawCredit_emitsMeasuredAmountNotRequestedArgument() public {
+        MockUnderfillingCreditLine underfilling = new MockUnderfillingCreditLine(address(usdc));
+        usdc.mint(address(underfilling), 100_000);
+        underfilling.setActualAmount(37_000);
+
+        vm.expectEmit(true, false, false, true, address(card));
+        emit IAgentCard.CreditDrawn(address(underfilling), 37_000);
+
+        vm.prank(owner);
+        card.drawCredit(address(underfilling), 999_999);
+
+        assertEq(usdc.balanceOf(address(card)), 37_000);
+    }
+
     // -- hub controls --
 
     function test_freeze_byNonHub_reverts() public {
@@ -291,5 +310,78 @@ contract AgentCardTest is Test {
         address[] memory list = card.payees();
         assertEq(list.length, 1);
         assertEq(list[0], payeeA);
+    }
+
+    function test_constructor_zeroPerCallCap_reverts() public {
+        address[] memory payees = new address[](1);
+        payees[0] = payeeA;
+        vm.expectRevert(IAgentCard.ZeroPerCallCap.selector);
+        new AgentCard(owner, cardHub, address(usdc), 0, WINDOW, payees);
+    }
+
+    function test_constructor_zeroMaxAuthWindow_reverts() public {
+        address[] memory payees = new address[](1);
+        payees[0] = payeeA;
+        vm.expectRevert(IAgentCard.ZeroMaxAuthWindow.selector);
+        new AgentCard(owner, cardHub, address(usdc), CAP, 0, payees);
+    }
+
+    function test_constructor_zeroPayee_reverts() public {
+        address[] memory payees = new address[](2);
+        payees[0] = payeeA;
+        payees[1] = address(0);
+        vm.expectRevert(IAgentCard.ZeroPayee.selector);
+        new AgentCard(owner, cardHub, address(usdc), CAP, WINDOW, payees);
+    }
+
+    function test_constructor_duplicatePayee_reverts() public {
+        address[] memory payees = new address[](2);
+        payees[0] = payeeA;
+        payees[1] = payeeA;
+        vm.expectRevert(abi.encodeWithSelector(IAgentCard.DuplicatePayee.selector, payeeA));
+        new AgentCard(owner, cardHub, address(usdc), CAP, WINDOW, payees);
+    }
+
+    // -- fuzz --
+
+    /// `isValidSignature` must never revert, no matter how malformed the inputs, and a
+    /// pseudo-random `hash`/`signature` pair can never forge the magic value (an ECDSA forgery
+    /// has negligible probability, so this always lands on the invalid selector).
+    function testFuzz_isValidSignature_neverRevertsAndRejectsRandomInput(bytes32 hash, bytes calldata signature)
+        public
+        view
+    {
+        assertEq(card.isValidSignature(hash, signature), INVALID_SIGNATURE);
+    }
+
+    // -- domain name (Base mainnet vs Sepolia) --
+
+    /// Base Sepolia's USDC reports its EIP-712 domain name as "USDC" (mainnet's is "USD Coin").
+    /// The card must derive its digest from whatever `DOMAIN_SEPARATOR()` the token actually
+    /// returns, not a hardcoded/cached value, so it validates correctly against either.
+    function test_isValidSignature_sepoliaStyleDomainName_returnsMagicValue() public {
+        MockEIP3009USDC sepoliaUsdc = new MockEIP3009USDC("USDC");
+        address[] memory payees = new address[](1);
+        payees[0] = payeeA;
+        AgentCard sepoliaCard = new AgentCard(owner, cardHub, address(sepoliaUsdc), CAP, WINDOW, payees);
+
+        uint256 vb = block.timestamp + 60;
+        bytes32 nonce = keccak256("sepolia-n1");
+        bytes32 structHash = keccak256(
+            abi.encode(
+                sepoliaCard.TRANSFER_WITH_AUTHORIZATION_TYPEHASH(),
+                address(sepoliaCard),
+                payeeA,
+                uint256(1000),
+                uint256(0),
+                vb,
+                nonce
+            )
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", sepoliaUsdc.DOMAIN_SEPARATOR(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, digest);
+        bytes memory blob = abi.encode(abi.encodePacked(r, s, v), payeeA, uint256(1000), uint256(0), vb, nonce);
+
+        assertEq(sepoliaCard.isValidSignature(digest, blob), MAGICVALUE);
     }
 }
