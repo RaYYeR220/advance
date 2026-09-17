@@ -229,6 +229,18 @@ contract CreditLineTest is Test {
         creditLine.draw(0);
     }
 
+    // -- Minor: draw must reject an amount that is within the period's theoretical limit but
+    // exceeds the contract's actual USDC balance, with the same DrawLimitExceeded(requested,
+    // available) shape availableThisPeriod already reports (available = balance, not the limit). --
+
+    function test_draw_revertsWhenWithinLimitButAboveBalance() public {
+        _settleGraduated(100_000); // balance 100_000 < drawLimit 250_000
+
+        vm.prank(card);
+        vm.expectRevert(abi.encodeWithSelector(CreditLine.DrawLimitExceeded.selector, 150_000, 100_000));
+        creditLine.draw(150_000); // within the period limit, but above the actual balance
+    }
+
     // -- Minor #6: availableThisPeriod is 0 unless Active, and caps to the actual USDC balance,
     // not just the theoretical period limit. --
 

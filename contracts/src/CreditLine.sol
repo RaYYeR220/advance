@@ -192,7 +192,9 @@ contract CreditLine is ReentrancyGuardTransient {
     }
 
     /// @notice Pays `amount` USDC to the card, charged against the current draw period's limit.
-    /// Only callable by the card, only while Active, and only for a nonzero amount.
+    /// Only callable by the card, only while Active, and only for a nonzero amount. Reverts
+    /// `DrawLimitExceeded` not just against the theoretical period limit but also against this
+    /// contract's actual USDC balance, consistent with `availableThisPeriod`.
     /// @param amount USDC to draw.
     function draw(uint256 amount) external nonReentrant {
         if (msg.sender != card) revert NotCard();
@@ -200,11 +202,10 @@ contract CreditLine is ReentrancyGuardTransient {
         if (amount == 0) revert ZeroAmount();
 
         uint64 period = currentPeriod();
-        uint256 drawnSoFar = drawnInPeriod[period];
-        uint256 available = drawLimit > drawnSoFar ? drawLimit - drawnSoFar : 0;
+        uint256 available = _availableInPeriod(period);
         if (amount > available) revert DrawLimitExceeded(amount, available);
 
-        drawnInPeriod[period] = drawnSoFar + amount;
+        drawnInPeriod[period] += amount;
         totalDrawn += amount;
 
         emit Drawn(amount, period, available - amount);
@@ -254,8 +255,13 @@ contract CreditLine is ReentrancyGuardTransient {
     /// @return The remaining drawable USDC for `currentPeriod()`.
     function availableThisPeriod() external view returns (uint256) {
         if (state != State.Active) return 0;
+        return _availableInPeriod(currentPeriod());
+    }
 
-        uint256 drawnSoFar = drawnInPeriod[currentPeriod()];
+    /// @dev The lesser of `period`'s remaining draw-limit allowance and this contract's actual
+    /// USDC balance. Shared by `draw` and `availableThisPeriod` so the two never disagree.
+    function _availableInPeriod(uint64 period) internal view returns (uint256) {
+        uint256 drawnSoFar = drawnInPeriod[period];
         uint256 limitRemaining = drawLimit > drawnSoFar ? drawLimit - drawnSoFar : 0;
         uint256 balance = usdc.balanceOf(address(this));
         return limitRemaining < balance ? limitRemaining : balance;
