@@ -67,6 +67,56 @@ importers:
         specifier: ^3.2.0
         version: 3.2.7(@types/debug@4.1.13)(@types/node@24.13.5)(tsx@4.23.13)
 
+  apps/underwriter:
+    dependencies:
+      '@advance/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@hono/node-server':
+        specifier: ^2.1.1
+        version: 2.1.1(hono@4.13.8)
+      hono:
+        specifier: ^4.13.8
+        version: 4.13.8
+      viem:
+        specifier: ^2.56.6
+        version: 2.56.6(typescript@5.9.3)(zod@4.6.5)
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.5
+      tsx:
+        specifier: ^4.19.0
+        version: 4.23.13
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.13.5)(tsx@4.23.13)
+
+  eval:
+    dependencies:
+      '@advance/core':
+        specifier: workspace:*
+        version: link:../packages/core
+      viem:
+        specifier: ^2.56.6
+        version: 2.56.6(typescript@5.9.3)(zod@4.6.5)
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.5
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.13.5)(tsx@4.23.13)
+
   packages/agent-kit:
     dependencies:
       '@dynamic-labs-wallet/node':
@@ -78,6 +128,28 @@ importers:
       viem:
         specifier: ^2.56.6
         version: 2.56.6(typescript@5.9.3)(zod@3.25.76)
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.5
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.13.5)(tsx@4.23.13)
+
+  packages/core:
+    dependencies:
+      canonicalize:
+        specifier: ^5.0.0
+        version: 5.0.0
+      viem:
+        specifier: ^2.56.6
+        version: 2.56.6(typescript@5.9.3)(zod@4.6.5)
+      zod:
+        specifier: ^4
+        version: 4.6.5
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -203,17 +275,17 @@ packages:
   '@dynamic-labs-wallet/primitives@1.1.11':
     resolution: {integrity: sha512-XqzDppO2063qWVo3OSioVODMzmB/bhvknf9Vrfz+hg5ONkZndjsNhsirUssHrXteWwjVhNzJIjjwkTgGt8Hicg==}
 
-  '@dynamic-labs/assert-package-version@4.100.1':
-    resolution: {integrity: sha512-ZfDhicO9Cp+Vqh92NFSvfI1hmJOGj87MSt1HVq2pJNLlomp3eMkhoJVyT8CgW0UebM6TUY/yPykA+TzMkyC9jQ==}
+  '@dynamic-labs/assert-package-version@4.100.2':
+    resolution: {integrity: sha512-JkmuhBHAravTa8+faHWr1kXIoOGc2NMWUwbj+5GIZI2AMrSt9c+nT6njTfvpma/96LiKm2gb/Q+pYzfMWUMNBg==}
 
-  '@dynamic-labs/logger@4.100.1':
-    resolution: {integrity: sha512-X/CsrNDzU+XrmcRveVvrYE12UwJRek1IgJoKAY3ybYnZh0Ie2FNDhMoYcKMG88NrWxooZirfhmBGCYV7OpgReA==}
+  '@dynamic-labs/logger@4.100.2':
+    resolution: {integrity: sha512-X4BsRCnTlHr1FJ73fQeOeYbe/QzPa8EffMa+dwBA979uUFf51HM1G3ta+LJisKcMRguns7l9ihr0hHgJBF/1Wg==}
 
   '@dynamic-labs/logger@5.9.0':
     resolution: {integrity: sha512-BFNoPH4ytjPesRCoxgzho2cDGbwxkYYn1qCKfTxsCuFCwnqH2ke9a3EqUOeYYRvKwdMAqPtQ9bdqkhdr5H1PcA==}
 
-  '@dynamic-labs/message-transport@4.100.1':
-    resolution: {integrity: sha512-eX7rX9SLjWfCglet4n9pH6PTzSk1eT/5Jh37VNAU4Kj5NOeJvfEDFAvVAKYkIW8f70vhCVMDO41igHtpF2XA2A==}
+  '@dynamic-labs/message-transport@4.100.2':
+    resolution: {integrity: sha512-s8XHQGrkwAeHgXTorwHrocSjZxOMoj+HubBYF+gruJ10vMH0sDp7M4zOcNMyjX6zwaTFT7h357FrC1qoZtlTng==}
 
   '@dynamic-labs/sdk-api-core@0.0.1067':
     resolution: {integrity: sha512-NvipAw65oF69QLw5MNMykSPIfIXMJzNPVwdfxfkmOuiwd6ZTWDPJoCh13jsGH2GurDGh1ZSSkrh527LLhD8+1w==}
@@ -227,11 +299,11 @@ packages:
   '@dynamic-labs/sdk-api-core@0.40.0':
     resolution: {integrity: sha512-fIBl3JxMdNf6TbBUAh9r15zH0cL5eOYi7xV/241ySmVeIRdKNP5MrZLyi8hZCHcd83Vu5VmP1UiYvEunnI1vWQ==}
 
-  '@dynamic-labs/types@4.100.1':
-    resolution: {integrity: sha512-oT+HIpx0JksEXjD8KDeRQwaUPeHFEWyjwfKrFGovJGqtIE+G5g+ZHR7dY6L9pOi2LWw+rjY0h/Qx4jYzwWgQOw==}
+  '@dynamic-labs/types@4.100.2':
+    resolution: {integrity: sha512-nrHTHmqEQMcZ0iTiiLyt2vwSFTOeuH7Dnj/+kXeIPo9Bi8+eJ8pHlsVUYCeiKZkbGKrXY7by7C6mTfVbwRdi0A==}
 
-  '@dynamic-labs/utils@4.100.1':
-    resolution: {integrity: sha512-ib7ZKw/eBY4OWsgIgzFe3j6OyNEmfYwdwsX1ZxF0KBgfmnj8v5XgF7oM7e4Kxr1flQp4EsZ+yUMm9ILB7ylb6Q==}
+  '@dynamic-labs/utils@4.100.2':
+    resolution: {integrity: sha512-goUmluG+/nvcy9OoNq8NXyeJmaAEyeR2SABP9M5dMrX4Q8g5qIACPqhsg8GWphNgTF+v/2u1peA9Nx2wWVEx3A==}
 
   '@ecies/ciphers@0.2.6':
     resolution: {integrity: sha512-patgsRPKGkhhoBjETV4XxD0En4ui5fbX0hzayqI3M8tvNMGUoUvmyYAIWwlxBc1KX5cturfqByYdj5bYGRpN9g==}
@@ -1626,11 +1698,11 @@ packages:
   '@vitest/utils@3.2.7':
     resolution: {integrity: sha512-x6BDOd7dyo3PFLY3I9/HJ25X/6OurhGXk2/B9gOZNPF7XDVjeBK4k01lQE5uvDpbuheErh91qYuE1E2OEjK3Rw==}
 
-  '@vue/reactivity@3.5.42':
-    resolution: {integrity: sha512-TzNNfKpb7hDxbQltwAut8VDQA5YP+BuRlxntHUuRjyKwlMvmAPbs3unhCvieijifY6vFfVBwsS7wG/C7uq+bEQ==}
+  '@vue/reactivity@3.5.43':
+    resolution: {integrity: sha512-G/c9GyOZNI2jVaaS6OX1EF1SSFSv7H0ERqNTl4+DTFMlZmB5eVAB53aLQNam/7NL2NPtaDD7RdVrzf8uJzMuOA==}
 
-  '@vue/shared@3.5.42':
-    resolution: {integrity: sha512-2rPxex1jQf4jvl9MOHl6YaXCPcrNqz/FstMOEh3QWY+/OME9nQTvl9WYeCwhW7AFjaR0SnngZGlp/wkR6rkI6g==}
+  '@vue/shared@3.5.43':
+    resolution: {integrity: sha512-uksS7YGMR5NZyr4JNq0Rp+QyLns0ueaz20KwzIPW9R0LH1Vnt4E+XUM29PNseEbf1www2gOuhuDi5AKOIXag9Q==}
 
   '@wallet-standard/base@1.1.1':
     resolution: {integrity: sha512-gggIHTtxicF9XFMQ12DkfS6NAG92Ak795JeSA7f2whAQ6Y3AkMWWuCMxSZXG2NIPN42kEaZSNVjqMsJRaJRxMQ==}
@@ -1795,17 +1867,6 @@ packages:
       zod:
         optional: true
 
-  abitype@1.3.0:
-    resolution: {integrity: sha512-fk6Te+bojIFrMvMZrnOO+SxCB+RUksTGOzq/60ZRvs1L+BVzvi2bqt9L3W/17ZLdZsyM1FuYf65P5nlmoiH1Bg==}
-    peerDependencies:
-      typescript: '>=5.0.4'
-      zod: ^3.22.0 || ^4.0.0
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-      zod:
-        optional: true
-
   ably@2.17.1:
     resolution: {integrity: sha512-70yfXHoM7JtJD/8FCtPD1gkWW0f+AJqbJp0PsqDAqiyxFB8cPFY+FuKHgNTYb8eRHKXq8hT1xiDphUcY0+GHnA==}
     engines: {node: '>=16'}
@@ -1913,6 +1974,11 @@ packages:
   call-bind-apply-helpers@1.0.2:
     resolution: {integrity: sha512-Sp1ablJ0ivDkSzjcaJdxEunN5/XvksFJ2sMBFfq6x0ryhQV/2b/KwFe21cMpmHtPOSij8K99/wSfoEuTObmuMQ==}
     engines: {node: '>= 0.4'}
+
+  canonicalize@5.0.0:
+    resolution: {integrity: sha512-O/NCg79G0/TWoD3Fo6scOMfP4p7/TsxRXVmRo9mEfD6h/5y5o1wtVbKyBO0E2i7FEcqe5tRijyAH/IWHIHMH4w==}
+    engines: {node: '>=22'}
+    hasBin: true
 
   centrifuge@5.7.4:
     resolution: {integrity: sha512-PnkJSS5uDPcdIDK4kkrgVCiT7RT+4xUTVjO9FfUjrUpOdPNKXgjfY+6gdG+RQKGSRP7AxP4NxCuFk0Eb4sjrWw==}
@@ -2074,9 +2140,6 @@ packages:
 
   eventemitter3@5.0.1:
     resolution: {integrity: sha512-GWkBvjiSZK87ELrYOSESUYeVIc9mvLLf/nXalMOS5dYrgZq9o5OVkbZAVM06CVxYsCwH9BDZFPlQTlPA1j4ahA==}
-
-  eventemitter3@5.0.4:
-    resolution: {integrity: sha512-mlsTRyGaPBjPedk6Bvw+aqbsXDtoAyAzm5MO7JgU+yVRyMQ5O8bD4Kcci7BS85f93veegeCPkL8R4GLClnjLFw==}
 
   events@3.3.0:
     resolution: {integrity: sha512-mQw+2fkQbALzQ7V0MY0IqdnXNOeTtP4r0lN9z7AAawCXgqea7bDii20AYrIBrFd/Hx0M2Ocz6S111CaFkUcb0Q==}
@@ -2853,18 +2916,6 @@ packages:
       utf-8-validate:
         optional: true
 
-  ws@8.21.3:
-    resolution: {integrity: sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
-
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
@@ -3146,8 +3197,8 @@ snapshots:
   '@dynamic-labs-wallet/browser-wallet-client@1.0.46(@dynamic-labs-wallet/forward-mpc-client@0.12.0(@dynamic-labs-wallet/primitives@1.1.11))':
     dependencies:
       '@dynamic-labs-wallet/core': 1.0.46(@dynamic-labs-wallet/forward-mpc-client@0.12.0(@dynamic-labs-wallet/primitives@1.1.11))
-      '@dynamic-labs/logger': 4.100.1
-      '@dynamic-labs/message-transport': 4.100.1
+      '@dynamic-labs/logger': 4.100.2
+      '@dynamic-labs/message-transport': 4.100.2
     transitivePeerDependencies:
       - '@dynamic-labs-wallet/forward-mpc-client'
       - debug
@@ -3188,10 +3239,10 @@ snapshots:
       '@dynamic-labs-wallet/primitives': 1.1.11
       '@evervault/wasm-attestation-bindings': 0.3.1
       '@noble/hashes': 2.4.0
-      eventemitter3: 5.0.4
+      eventemitter3: 5.0.1
       fp-ts: 2.16.11
-      isows: 1.0.7(ws@8.21.3)
-      ws: 8.21.3
+      isows: 1.0.7(ws@8.21.0)
+      ws: 8.21.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -3202,10 +3253,10 @@ snapshots:
       '@dynamic-labs-wallet/primitives': 1.1.11
       '@evervault/wasm-attestation-bindings': 0.3.1
       '@noble/hashes': 2.4.0
-      eventemitter3: 5.0.4
+      eventemitter3: 5.0.1
       fp-ts: 2.16.11
-      isows: 1.0.7(ws@8.21.3)
-      ws: 8.21.3
+      isows: 1.0.7(ws@8.21.0)
+      ws: 8.21.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -3302,11 +3353,11 @@ snapshots:
 
   '@dynamic-labs-wallet/primitives@1.1.11': {}
 
-  '@dynamic-labs/assert-package-version@4.100.1':
+  '@dynamic-labs/assert-package-version@4.100.2':
     dependencies:
-      '@dynamic-labs/logger': 4.100.1
+      '@dynamic-labs/logger': 4.100.2
 
-  '@dynamic-labs/logger@4.100.1':
+  '@dynamic-labs/logger@4.100.2':
     dependencies:
       eventemitter3: 5.0.1
 
@@ -3314,12 +3365,12 @@ snapshots:
     dependencies:
       eventemitter3: 5.0.1
 
-  '@dynamic-labs/message-transport@4.100.1':
+  '@dynamic-labs/message-transport@4.100.2':
     dependencies:
-      '@dynamic-labs/assert-package-version': 4.100.1
-      '@dynamic-labs/logger': 4.100.1
-      '@dynamic-labs/utils': 4.100.1
-      '@vue/reactivity': 3.5.42
+      '@dynamic-labs/assert-package-version': 4.100.2
+      '@dynamic-labs/logger': 4.100.2
+      '@dynamic-labs/utils': 4.100.2
+      '@vue/reactivity': 3.5.43
       eventemitter3: 5.0.1
 
   '@dynamic-labs/sdk-api-core@0.0.1067': {}
@@ -3330,17 +3381,17 @@ snapshots:
 
   '@dynamic-labs/sdk-api-core@0.40.0': {}
 
-  '@dynamic-labs/types@4.100.1':
+  '@dynamic-labs/types@4.100.2':
     dependencies:
-      '@dynamic-labs/assert-package-version': 4.100.1
+      '@dynamic-labs/assert-package-version': 4.100.2
       '@dynamic-labs/sdk-api-core': 0.40.0
 
-  '@dynamic-labs/utils@4.100.1':
+  '@dynamic-labs/utils@4.100.2':
     dependencies:
-      '@dynamic-labs/assert-package-version': 4.100.1
-      '@dynamic-labs/logger': 4.100.1
+      '@dynamic-labs/assert-package-version': 4.100.2
+      '@dynamic-labs/logger': 4.100.2
       '@dynamic-labs/sdk-api-core': 0.40.0
-      '@dynamic-labs/types': 4.100.1
+      '@dynamic-labs/types': 4.100.2
       buffer: 6.0.3
       eventemitter3: 5.0.1
       tldts: 6.0.16
@@ -3486,10 +3537,10 @@ snapshots:
       buffer: 6.0.3
       cross-fetch: 4.1.0
       eciesjs: 0.4.17
-      eventemitter3: 5.0.4
+      eventemitter3: 5.0.1
       pako: 2.2.0
       uuid: 11.1.1
-      ws: 8.21.3
+      ws: 8.21.0
     transitivePeerDependencies:
       - bufferutil
       - encoding
@@ -3500,7 +3551,7 @@ snapshots:
     dependencies:
       async-mutex: 0.5.0
       centrifuge: 5.7.4
-      eventemitter3: 5.0.4
+      eventemitter3: 5.0.1
       uuid: 11.1.1
 
   '@metamask/mobile-wallet-protocol-dapp-client@0.3.0':
@@ -3728,7 +3779,7 @@ snapshots:
 
   '@scure/bip32@1.7.0':
     dependencies:
-      '@noble/curves': 1.9.7
+      '@noble/curves': 1.9.1
       '@noble/hashes': 1.8.0
       '@scure/base': 1.2.6
 
@@ -4333,7 +4384,7 @@ snapshots:
       '@solana/functional': 5.5.1(typescript@5.9.3)
       '@solana/rpc-subscriptions-spec': 5.5.1(typescript@5.9.3)
       '@solana/subscribable': 5.5.1(typescript@5.9.3)
-      ws: 8.21.3
+      ws: 8.21.0
     optionalDependencies:
       typescript: 5.9.3
     transitivePeerDependencies:
@@ -4346,7 +4397,7 @@ snapshots:
       '@solana/functional': 6.10.0(typescript@5.9.3)
       '@solana/rpc-subscriptions-spec': 6.10.0(typescript@5.9.3)
       '@solana/subscribable': 6.10.0(typescript@5.9.3)
-      ws: 8.21.3
+      ws: 8.21.0
     optionalDependencies:
       typescript: 5.9.3
     transitivePeerDependencies:
@@ -4796,11 +4847,11 @@ snapshots:
       loupe: 3.2.1
       tinyrainbow: 2.0.0
 
-  '@vue/reactivity@3.5.42':
+  '@vue/reactivity@3.5.43':
     dependencies:
-      '@vue/shared': 3.5.42
+      '@vue/shared': 3.5.43
 
-  '@vue/shared@3.5.42': {}
+  '@vue/shared@3.5.43': {}
 
   '@wallet-standard/base@1.1.1': {}
 
@@ -5148,7 +5199,7 @@ snapshots:
 
   '@x402/extensions@2.26.0(typescript@5.9.3)':
     dependencies:
-      '@noble/curves': 1.9.7
+      '@noble/curves': 1.9.1
       '@scure/base': 1.2.6
       '@signinwithethereum/siwe': 4.2.1(viem@2.56.6(typescript@5.9.3)(zod@4.6.5))
       '@x402/core': 2.26.0
@@ -5209,7 +5260,7 @@ snapshots:
 
   '@zerodev/webauthn-key@5.5.0(viem@2.56.6(typescript@5.9.3)(zod@3.25.76))':
     dependencies:
-      '@noble/curves': 1.9.7
+      '@noble/curves': 1.9.1
       '@simplewebauthn/browser': 8.3.7
       '@simplewebauthn/types': 12.0.0
       viem: 2.56.6(typescript@5.9.3)(zod@3.25.76)
@@ -5234,22 +5285,12 @@ snapshots:
       typescript: 5.9.3
       zod: 3.25.76
 
-  abitype@1.2.3(typescript@5.9.3)(zod@4.6.5):
-    optionalDependencies:
-      typescript: 5.9.3
-      zod: 4.6.5
-
-  abitype@1.3.0(typescript@5.9.3)(zod@3.25.76):
-    optionalDependencies:
-      typescript: 5.9.3
-      zod: 3.25.76
-
-  abitype@1.3.0(typescript@5.9.3)(zod@4.0.5):
+  abitype@1.2.3(typescript@5.9.3)(zod@4.0.5):
     optionalDependencies:
       typescript: 5.9.3
       zod: 4.0.5
 
-  abitype@1.3.0(typescript@5.9.3)(zod@4.6.5):
+  abitype@1.2.3(typescript@5.9.3)(zod@4.6.5):
     optionalDependencies:
       typescript: 5.9.3
       zod: 4.6.5
@@ -5261,7 +5302,7 @@ snapshots:
       fastestsmallesttextencoderdecoder: 1.0.22
       got: 11.8.6
       ulid: 2.4.0
-      ws: 8.21.3
+      ws: 8.21.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -5371,6 +5412,8 @@ snapshots:
     dependencies:
       es-errors: 1.3.0
       function-bind: 1.1.2
+
+  canonicalize@5.0.0: {}
 
   centrifuge@5.7.4:
     dependencies:
@@ -5545,8 +5588,6 @@ snapshots:
 
   eventemitter3@5.0.1: {}
 
-  eventemitter3@5.0.4: {}
-
   events@3.3.0: {}
 
   expect-type@1.4.0: {}
@@ -5688,10 +5729,6 @@ snapshots:
     dependencies:
       ws: 8.21.0
 
-  isows@1.0.7(ws@8.21.3):
-    dependencies:
-      ws: 8.21.3
-
   jose@5.10.0: {}
 
   jose@6.2.12: {}
@@ -5799,7 +5836,7 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.3.0(typescript@5.9.3)(zod@3.25.76)
+      abitype: 1.2.3(typescript@5.9.3)(zod@3.25.76)
       eventemitter3: 5.0.1
     optionalDependencies:
       typescript: 5.9.3
@@ -5814,7 +5851,7 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.3.0(typescript@5.9.3)(zod@4.6.5)
+      abitype: 1.2.3(typescript@5.9.3)(zod@4.6.5)
       eventemitter3: 5.0.1
     optionalDependencies:
       typescript: 5.9.3
@@ -5824,11 +5861,11 @@ snapshots:
   ox@0.6.9(typescript@5.9.3)(zod@3.25.76):
     dependencies:
       '@adraffy/ens-normalize': 1.11.1
-      '@noble/curves': 1.9.7
+      '@noble/curves': 1.9.1
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.3.0(typescript@5.9.3)(zod@3.25.76)
+      abitype: 1.2.3(typescript@5.9.3)(zod@3.25.76)
       eventemitter3: 5.0.1
     optionalDependencies:
       typescript: 5.9.3
@@ -5839,11 +5876,11 @@ snapshots:
     dependencies:
       '@adraffy/ens-normalize': 1.11.1
       '@noble/ciphers': 1.3.0
-      '@noble/curves': 1.9.7
+      '@noble/curves': 1.9.2
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.3.0(typescript@5.9.3)(zod@3.25.76)
+      abitype: 1.2.3(typescript@5.9.3)(zod@3.25.76)
       eventemitter3: 5.0.1
     optionalDependencies:
       typescript: 5.9.3
@@ -5854,11 +5891,11 @@ snapshots:
     dependencies:
       '@adraffy/ens-normalize': 1.11.1
       '@noble/ciphers': 1.3.0
-      '@noble/curves': 1.9.7
+      '@noble/curves': 1.9.2
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.3.0(typescript@5.9.3)(zod@4.0.5)
+      abitype: 1.2.3(typescript@5.9.3)(zod@4.0.5)
       eventemitter3: 5.0.1
     optionalDependencies:
       typescript: 5.9.3
@@ -6313,8 +6350,6 @@ snapshots:
   ws@8.18.2: {}
 
   ws@8.21.0: {}
-
-  ws@8.21.3: {}
 
   zod@3.25.76: {}
 

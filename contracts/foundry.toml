@@ -1,0 +1,25 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+solc = "0.8.30"
+evm_version = "cancun"
+via_ir = true
+optimizer = true
+optimizer_runs = 10000
+fs_permissions = [{ access = "read-write", path = "./test/vectors" }]
+
+[profile.fork]
+eth_rpc_url = "https://mainnet.base.org"
+fork_block_number = 51403692
+# Base's op-revm execution needs its Isthmus-era L1 block fields; holocene is the latest
+# hardfork this Foundry release can simulate without them. Without this, forking Base panics.
+hardfork = "optimism:holocene"
+# Scopes this profile to only the fork suite, so `FOUNDRY_PROFILE=fork forge test
+# --match-contract AgentCard` never pulls in offline unit tests that were never meant to run
+# against a live fork.
+match_path = "test/fork/*"
+
+# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
