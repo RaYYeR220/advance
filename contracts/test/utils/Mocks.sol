@@ -63,25 +63,39 @@ contract MockERC20 is ERC20 {
     }
 }
 
-/// @notice Minimal mock of a CCA v2.1.0 auction, close enough for CreditLine tests: a fixed
-/// `endBlock`, a settable `isGraduated` flag, a one-shot `sweepCurrency` gated to `fundsRecipient`
-/// that moves this contract's whole currency balance when graduated (0 otherwise), and an
-/// unrestricted `sweepUnsoldTokens` that moves this contract's whole note balance to
-/// `tokensRecipient` regardless of graduation. `checkpoint` and the bid-lifecycle functions are
-/// no-ops; Advance's CreditLine never calls them.
+/// @notice Minimal but faithful mock of a CCA v2.1.0 auction. Mirrors the real contract's
+/// lazy-checkpoint semantics: `isGraduated()` reflects `pendingGraduated` (set via the test hook
+/// `setGraduated`, standing in for bids that have landed) only once `checkpoint()` — or, per the
+/// real contract's `ensureEndBlockIsCheckpointed` modifier, `sweepCurrency()`/`sweepUnsoldTokens()`
+/// — has actually run; before that it stays at whatever it last committed to (0/false by
+/// default). `sweepCurrency` is `fundsRecipient`-only, callable once, only after `endBlock`,
+/// and sweeps 0 (not a revert) when not graduated. `sweepUnsoldTokens` is `tokensRecipient`-only,
+/// callable once, only after `endBlock`, and moves this contract's whole note balance — which
+/// equals `remainingSupply()` when graduated (bids "sold" are simulated by tests transferring
+/// notes out of this contract) and the full `TOTAL_SUPPLY` when not (nothing can be transferred
+/// out pre-graduation in the real contract, since claiming requires it). `checkpoint` and the
+/// bid-lifecycle functions beyond that are no-ops; Advance's CreditLine never calls them.
 contract MockAuction is ICCA {
     using SafeERC20 for IERC20;
 
-    IERC20 public immutable currency;
-    IERC20 public immutable noteToken;
-    address public immutable fundsRecipient;
-    address public immutable tokensRecipient;
-    uint64 public immutable endBlockNumber;
+    IERC20 internal immutable _currency;
+    IERC20 internal immutable _noteToken;
+    address internal immutable _fundsRecipient;
+    address internal immutable _tokensRecipient;
+    uint64 internal immutable _endBlock;
 
-    bool public graduated;
+    /// @dev What `isGraduated()` will report once a checkpoint runs; simulates bids that have
+    /// landed but aren't yet reflected in on-chain graduation state.
+    bool public pendingGraduated;
+    /// @dev The checkpointed/committed graduation status; this is what `isGraduated()` returns.
+    bool internal committedGraduated;
+
     bool public currencySwept;
+    bool public unsoldSwept;
 
     error NotFundsRecipient();
+    error NotTokensRecipient();
+    error AuctionNotOver();
     error AlreadySwept();
 
     constructor(
@@ -91,16 +105,17 @@ contract MockAuction is ICCA {
         address tokensRecipient_,
         uint64 endBlockNumber_
     ) {
-        currency = IERC20(currency_);
-        noteToken = IERC20(noteToken_);
-        fundsRecipient = fundsRecipient_;
-        tokensRecipient = tokensRecipient_;
-        endBlockNumber = endBlockNumber_;
+        _currency = IERC20(currency_);
+        _noteToken = IERC20(noteToken_);
+        _fundsRecipient = fundsRecipient_;
+        _tokensRecipient = tokensRecipient_;
+        _endBlock = endBlockNumber_;
     }
 
-    /// @notice Test hook: sets whether the auction graduated.
+    /// @notice Test hook: sets what graduation will read as once checkpointed (simulates bids
+    /// landing without yet running a checkpoint).
     function setGraduated(bool graduated_) external {
-        graduated = graduated_;
+        pendingGraduated = graduated_;
     }
 
     function onTokensReceived() external {}
@@ -109,28 +124,37 @@ contract MockAuction is ICCA {
         return 0;
     }
 
-    function checkpoint() external pure returns (Checkpoint memory) {
+    function checkpoint() external returns (Checkpoint memory) {
+        _checkpoint();
         return Checkpoint(0, 0, 0, 0, 0, 0);
     }
 
     function sweepCurrency() external {
-        if (msg.sender != fundsRecipient) revert NotFundsRecipient();
+        if (msg.sender != _fundsRecipient) revert NotFundsRecipient();
+        if (block.number < _endBlock) revert AuctionNotOver();
         if (currencySwept) revert AlreadySwept();
         currencySwept = true;
+        _checkpoint();
 
-        if (graduated) {
-            uint256 balance = currency.balanceOf(address(this));
-            if (balance != 0) currency.safeTransfer(fundsRecipient, balance);
+        if (committedGraduated) {
+            uint256 balance = _currency.balanceOf(address(this));
+            if (balance != 0) _currency.safeTransfer(_fundsRecipient, balance);
         }
     }
 
     function sweepUnsoldTokens() external {
-        uint256 balance = noteToken.balanceOf(address(this));
-        if (balance != 0) noteToken.safeTransfer(tokensRecipient, balance);
+        if (msg.sender != _tokensRecipient) revert NotTokensRecipient();
+        if (block.number < _endBlock) revert AuctionNotOver();
+        if (unsoldSwept) revert AlreadySwept();
+        unsoldSwept = true;
+        _checkpoint();
+
+        uint256 balance = _noteToken.balanceOf(address(this));
+        if (balance != 0) _noteToken.safeTransfer(_tokensRecipient, balance);
     }
 
     function endBlock() external view returns (uint64) {
-        return endBlockNumber;
+        return _endBlock;
     }
 
     function claimTokens(uint256) external {}
@@ -138,7 +162,29 @@ contract MockAuction is ICCA {
     function exitBid(uint256) external {}
 
     function isGraduated() external view returns (bool) {
-        return graduated;
+        return committedGraduated;
+    }
+
+    function currency() external view returns (address) {
+        return address(_currency);
+    }
+
+    function token() external view returns (address) {
+        return address(_noteToken);
+    }
+
+    function tokensRecipient() external view returns (address) {
+        return _tokensRecipient;
+    }
+
+    function fundsRecipient() external view returns (address) {
+        return _fundsRecipient;
+    }
+
+    /// @dev Commits `pendingGraduated` into the queryable `isGraduated()` value, mirroring the
+    /// real contract's checkpoint-driven `$currencyRaisedQ96X7` update.
+    function _checkpoint() internal {
+        committedGraduated = pendingGraduated;
     }
 }
 

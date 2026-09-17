@@ -74,10 +74,15 @@ interface ICCA {
     /// @notice Advances accounting to the current block, returning the resulting checkpoint.
     function checkpoint() external returns (Checkpoint memory);
 
-    /// @notice Withdraws all raised currency to `fundsRecipient`. Callable after the auction ends.
+    /// @notice Withdraws all raised currency to `fundsRecipient`. Callable once, after the
+    /// auction ends, only by `fundsRecipient`. Sweeps 0 (not a revert) if the auction did not
+    /// graduate. Checkpoints the auction first if the end block hasn't been checkpointed yet, so
+    /// `isGraduated()` is guaranteed fresh by the time this returns.
     function sweepCurrency() external;
 
-    /// @notice Sends any unsold tokens to `tokensRecipient`. Callable after the auction ends.
+    /// @notice Sends any unsold tokens to `tokensRecipient`. Callable once, after the auction
+    /// ends, only by `tokensRecipient`. Checkpoints the auction first if the end block hasn't
+    /// been checkpointed yet, so `isGraduated()` is guaranteed fresh by the time this returns.
     function sweepUnsoldTokens() external;
 
     /// @notice The block at which the auction ends.
@@ -91,6 +96,30 @@ interface ICCA {
 
     /// @notice Whether the auction has raised at least `requiredCurrencyRaised`.
     /// @dev Confirmed exact name against CCA v2.1.0 source
-    /// (src/interfaces/IContinuousClearingAuction.sol#isGraduated, tag v2.1.0).
+    /// (src/interfaces/IContinuousClearingAuction.sol#isGraduated, tag v2.1.0). Relies on the
+    /// latest checkpoint, which is lazily updated (see `checkpoint`/`sweepCurrency`/
+    /// `sweepUnsoldTokens`) and can be stale if nothing has checkpointed since the last bid.
     function isGraduated() external view returns (bool);
+
+    /// @notice The currency being raised in the auction.
+    /// @dev Confirmed exact signature against CCA v2.1.0 source
+    /// (`ContinuousClearingAuction.currency()`, tag v2.1.0).
+    function currency() external view returns (address);
+
+    /// @notice The token being sold in the auction.
+    /// @dev Confirmed exact signature against CCA v2.1.0 source
+    /// (`ContinuousClearingAuction.token()`, tag v2.1.0).
+    function token() external view returns (address);
+
+    /// @notice The recipient of any unsold tokens swept at the end of the auction; the only
+    /// address `sweepUnsoldTokens` is allowed to be called by.
+    /// @dev Confirmed exact signature against CCA v2.1.0 source
+    /// (`ContinuousClearingAuction.tokensRecipient()`, tag v2.1.0).
+    function tokensRecipient() external view returns (address);
+
+    /// @notice The recipient of the raised currency; the only address `sweepCurrency` is allowed
+    /// to be called by.
+    /// @dev Confirmed exact signature against CCA v2.1.0 source
+    /// (`ContinuousClearingAuction.fundsRecipient()`, tag v2.1.0).
+    function fundsRecipient() external view returns (address);
 }

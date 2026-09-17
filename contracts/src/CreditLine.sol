@@ -19,6 +19,9 @@ contract CreditLine is ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
     /// @notice Lifecycle of this credit line, mirroring the loan's auction outcome.
+    /// @dev `Pending` is the only state `settleAuction` may run from; `Active` is the only state
+    /// `freeze`/`close` may run from. `Frozen`, `Closed` and `Failed` are all terminal: no
+    /// function transitions out of them.
     enum State {
         Pending,
         Active,
@@ -51,8 +54,6 @@ contract CreditLine is ReentrancyGuardTransient {
     RevenueNote public note;
     /// @notice Whether `initialize` has already been called.
     bool public initialized;
-    /// @notice Whether `settleAuction` has already been called.
-    bool public settled;
 
     /// @notice USDC principal raised by the auction (0 if it did not graduate).
     uint256 public principal;
@@ -82,15 +83,35 @@ contract CreditLine is ReentrancyGuardTransient {
     /// @param toTreasury USDC sent to the treasury.
     event Closed(uint256 toTreasury);
 
+    /// @notice Thrown when a caller other than `hub` calls a hub-only function.
     error NotHub();
+    /// @notice Thrown when a caller other than `card` calls `draw`.
     error NotCard();
+    /// @notice Thrown when `draw` is called while `state` is not `Active`.
     error NotActive();
+    /// @notice Thrown when `settleAuction` is called before the auction's `endBlock`.
     error AuctionLive();
+    /// @notice Thrown when `settleAuction` is called a second time (state is no longer `Pending`).
     error AlreadySettled();
+    /// @notice Thrown when `draw` requests more than is left in the current period.
+    /// @param requested The amount requested.
+    /// @param available The amount actually available in the current period.
     error DrawLimitExceeded(uint256 requested, uint256 available);
+    /// @notice Thrown when `freeze` or `close` is called from a state other than `Active`.
+    /// @param current The credit line's actual current state.
+    error InvalidState(State current);
+    /// @notice Thrown when `initialize` is called a second time.
     error AlreadyInitialized();
+    /// @notice Thrown when a required constructor or `initialize` address argument is zero.
     error ZeroAddress();
+    /// @notice Thrown when the constructor is given a zero `drawPeriod` (a division denominator).
     error ZeroDrawPeriod();
+    /// @notice Thrown when `draw` is called with a zero amount.
+    error ZeroAmount();
+    /// @notice Thrown when `initialize`'s `auction` is not actually wired to this credit line
+    /// (its `fundsRecipient`/`tokensRecipient` must both be this contract, its `currency` must
+    /// be `usdc`, and its `token` must be `note`).
+    error InvalidAuctionWiring();
 
     /// @param hub_ AdvanceHub address; the only caller allowed to `initialize`, `freeze` and `close`.
     /// @param usdc_ USDC token this credit line custodies and pays out.
@@ -113,7 +134,9 @@ contract CreditLine is ReentrancyGuardTransient {
     }
 
     /// @notice Wires the loan id, auction and note this credit line was created for. Callable
-    /// once, by the hub.
+    /// once, by the hub. Verifies the auction is actually wired to this credit line (its
+    /// `fundsRecipient`/`tokensRecipient` are this contract and its `currency`/`token` match
+    /// `usdc`/`note`), so a misconfigured auction can never strand funds unrecoverably.
     /// @param loanId_ The loan id this credit line is initialized for.
     /// @param auction_ The CCA auction this loan's notes were sold through.
     /// @param note_ The loan's revenue note.
@@ -122,28 +145,35 @@ contract CreditLine is ReentrancyGuardTransient {
         if (initialized) revert AlreadyInitialized();
         if (auction_ == address(0) || note_ == address(0)) revert ZeroAddress();
 
+        ICCA auction_typed = ICCA(auction_);
+        if (auction_typed.fundsRecipient() != address(this)) revert InvalidAuctionWiring();
+        if (auction_typed.tokensRecipient() != address(this)) revert InvalidAuctionWiring();
+        if (auction_typed.currency() != address(usdc)) revert InvalidAuctionWiring();
+        if (auction_typed.token() != note_) revert InvalidAuctionWiring();
+
         initialized = true;
         loanId = loanId_;
-        auction = ICCA(auction_);
+        auction = auction_typed;
         note = RevenueNote(note_);
     }
 
-    /// @notice Settles the auction once it has ended: sweeps raised USDC as principal if
-    /// graduated, sweeps and burns any unsold notes either way, activates this credit line
-    /// (graduated) or marks it Failed (not graduated), and notifies the hub. Callable once, by
-    /// anyone, only after the auction's `endBlock`.
+    /// @notice Settles the auction once it has ended: sweeps the auction's currency
+    /// unconditionally first (this is what actually checkpoints the auction, so `isGraduated()`
+    /// is guaranteed fresh, not stale from before the last bid), then reads graduation, sweeps
+    /// and burns any unsold notes either way, activates this credit line (graduated) or marks
+    /// it Failed (not graduated), and notifies the hub last. Callable once, by anyone, only
+    /// after the auction's `endBlock`, only from `Pending`.
     function settleAuction() external nonReentrant {
-        if (settled) revert AlreadySettled();
+        if (state != State.Pending) revert AlreadySettled();
         if (block.number < auction.endBlock()) revert AuctionLive();
-        settled = true;
+
+        uint256 balanceBefore = usdc.balanceOf(address(this));
+        auction.sweepCurrency();
+        uint256 raised = usdc.balanceOf(address(this)) - balanceBefore;
 
         bool graduated = auction.isGraduated();
-        uint256 raised;
 
         if (graduated) {
-            uint256 balanceBefore = usdc.balanceOf(address(this));
-            auction.sweepCurrency();
-            raised = usdc.balanceOf(address(this)) - balanceBefore;
             principal = raised;
             state = State.Active;
             activatedAt = uint64(block.timestamp);
@@ -162,11 +192,12 @@ contract CreditLine is ReentrancyGuardTransient {
     }
 
     /// @notice Pays `amount` USDC to the card, charged against the current draw period's limit.
-    /// Only callable by the card, only while Active.
+    /// Only callable by the card, only while Active, and only for a nonzero amount.
     /// @param amount USDC to draw.
     function draw(uint256 amount) external nonReentrant {
         if (msg.sender != card) revert NotCard();
         if (state != State.Active) revert NotActive();
+        if (amount == 0) revert ZeroAmount();
 
         uint64 period = currentPeriod();
         uint256 drawnSoFar = drawnInPeriod[period];
@@ -181,9 +212,11 @@ contract CreditLine is ReentrancyGuardTransient {
     }
 
     /// @notice Freezes this credit line: distributes min(balance, note.remainingCap()) USDC to
-    /// the revenue note and sends any remainder to the treasury. Only callable by the hub.
+    /// the revenue note and sends any remainder to the treasury. Only callable by the hub, only
+    /// from `Active`.
     function freeze() external nonReentrant {
         if (msg.sender != hub) revert NotHub();
+        if (state != State.Active) revert InvalidState(state);
         state = State.Frozen;
 
         uint256 balance = usdc.balanceOf(address(this));
@@ -203,9 +236,10 @@ contract CreditLine is ReentrancyGuardTransient {
     }
 
     /// @notice Closes this credit line, sweeping its entire USDC balance to the treasury. Only
-    /// callable by the hub.
+    /// callable by the hub, only from `Active`.
     function close() external nonReentrant {
         if (msg.sender != hub) revert NotHub();
+        if (state != State.Active) revert InvalidState(state);
         state = State.Closed;
 
         uint256 balance = usdc.balanceOf(address(this));
@@ -215,11 +249,16 @@ contract CreditLine is ReentrancyGuardTransient {
         }
     }
 
-    /// @notice USDC still drawable in the current draw period.
+    /// @notice USDC still drawable in the current draw period: 0 unless `Active`, otherwise
+    /// the lesser of the period's remaining limit and this contract's actual USDC balance.
     /// @return The remaining drawable USDC for `currentPeriod()`.
     function availableThisPeriod() external view returns (uint256) {
+        if (state != State.Active) return 0;
+
         uint256 drawnSoFar = drawnInPeriod[currentPeriod()];
-        return drawLimit > drawnSoFar ? drawLimit - drawnSoFar : 0;
+        uint256 limitRemaining = drawLimit > drawnSoFar ? drawLimit - drawnSoFar : 0;
+        uint256 balance = usdc.balanceOf(address(this));
+        return limitRemaining < balance ? limitRemaining : balance;
     }
 
     /// @notice The current draw period index, counted from `activatedAt`.
