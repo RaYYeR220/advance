@@ -85,6 +85,24 @@ test.describe("landing page", () => {
     await expect(page.getByRole("img", { name: /Halftone portrait of agent 0x9b07/ })).toBeAttached();
   });
 
+  test("nests headings without skipping a level", async ({ page }) => {
+    await page.goto("/");
+    const levels = await page.evaluate(() =>
+      [...document.querySelectorAll("h1, h2, h3, h4, h5, h6")].map((h) => Number(h.tagName.slice(1))),
+    );
+    expect(levels[0]).toBe(1);
+    const skips = levels.flatMap((level, i) => (i > 0 && level > (levels[i - 1] ?? 1) + 1 ? [i] : []));
+    expect(skips).toEqual([]);
+  });
+
+  test("sets lifecycle step numbers in readable ochre ink", async ({ page }) => {
+    await page.goto("/");
+    const colors = await page
+      .locator("#how ol > li h3")
+      .evaluateAll((titles) => titles.map((t) => getComputedStyle(t.previousElementSibling as Element).color));
+    expect(colors).toEqual(Array(5).fill("rgb(163, 117, 33)"));
+  });
+
   test("shows a visible focus ring on keyboard focus", async ({ page }) => {
     await page.goto("/");
     const seen: string[] = [];

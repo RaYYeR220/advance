@@ -35,7 +35,7 @@ export function BackCover({ pitch, action, columns, imprint, page }: BackCoverPr
       <nav className={styles.nav} aria-label="Footer">
         {columns.map((column) => (
           <div key={column.title}>
-            <h3>{column.title}</h3>
+            <h2>{column.title}</h2>
             {column.links ? (
               <ul>
                 {column.links.map((link) => (
