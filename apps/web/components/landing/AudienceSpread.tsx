@@ -27,7 +27,7 @@ export function AudienceSpread({ audiences }: AudienceSpreadProps) {
       id: "mcp",
       label: "MCP server",
       lines: [
-        { text: "// from Claude, Cursor or a Bankr agent's loop", comment: true },
+        { text: "// from any MCP client or a Bankr agent's loop", comment: true },
         { text: `get_credit_quote({ token: "${token}" })` },
         { text: `// score ${quote.score}, up to ${formatUsd(quote.maxUsd)}, ${limit} a day`, comment: true },
         { text: " " },
