@@ -66,17 +66,28 @@ contract MockERC20 is ERC20 {
 /// @notice Minimal but faithful mock of a CCA v2.1.0 auction. Mirrors the real contract's
 /// lazy-checkpoint semantics: `isGraduated()` reflects `pendingGraduated` (set via the test hook
 /// `setGraduated`, standing in for bids that have landed) only once `checkpoint()` — or, per the
-/// real contract's `ensureEndBlockIsCheckpointed` modifier, `sweepCurrency()`/`sweepUnsoldTokens()`
-/// — has actually run; before that it stays at whatever it last committed to (0/false by
-/// default). `sweepCurrency` is `fundsRecipient`-only, callable once, only after `endBlock`,
-/// and sweeps 0 (not a revert) when not graduated. `sweepUnsoldTokens` is `tokensRecipient`-only,
-/// callable once, only after `endBlock`, and moves this contract's whole note balance — which
-/// equals `remainingSupply()` when graduated (bids "sold" are simulated by tests transferring
-/// notes out of this contract) and the full `TOTAL_SUPPLY` when not (nothing can be transferred
-/// out pre-graduation in the real contract, since claiming requires it). `checkpoint` and the
-/// bid-lifecycle functions beyond that are no-ops; Advance's CreditLine never calls them.
+/// real contract's `ensureEndBlockIsCheckpointed` modifier, `sweepCurrency()`/`sweepUnsoldTokens()`/
+/// `claimTokens()` — has actually run; before that it stays at whatever it last committed to
+/// (0/false by default). `sweepCurrency` is `fundsRecipient`-only, callable once, only after
+/// `endBlock`, and sweeps 0 (not a revert) when not graduated. Sold notes are NOT transferred out
+/// at sale time (real CCA: filled bids sit in the auction until each bidder calls `claimTokens`,
+/// which reverts before graduation) — tests record a sale via `recordSale`, which only does
+/// bookkeeping. `sweepUnsoldTokens` is `tokensRecipient`-only, callable once, only after
+/// `endBlock`, and moves `totalSold` less than this contract's whole note balance when graduated
+/// (the real contract's `remainingSupply()`), or the whole balance when not (real `TOTAL_SUPPLY`,
+/// since nothing can ever be claimed pre-graduation). `claimTokens(bidId)` pays out a recorded
+/// sale's `owner` after `endBlock`, once graduated, once per bid. `checkpoint` and the unused
+/// bid-lifecycle functions are no-ops; Advance's CreditLine never calls them.
 contract MockAuction is ICCA {
     using SafeERC20 for IERC20;
+
+    /// @dev A test-recorded filled bid: `amount` notes sold to `owner`, claimable via
+    /// `claimTokens` once the auction has ended and graduated.
+    struct SoldLot {
+        address owner;
+        uint256 amount;
+        bool claimed;
+    }
 
     IERC20 internal immutable _currency;
     IERC20 internal immutable _noteToken;
@@ -93,10 +104,18 @@ contract MockAuction is ICCA {
     bool public currencySwept;
     bool public unsoldSwept;
 
+    /// @notice Cumulative notes recorded as sold/filled via `recordSale`, still physically held
+    /// by this contract until claimed.
+    uint256 public totalSold;
+    mapping(uint256 bidId => SoldLot) internal _soldLots;
+    uint256 internal _nextBidId;
+
     error NotFundsRecipient();
     error NotTokensRecipient();
     error AuctionNotOver();
     error AlreadySwept();
+    error NotGraduated();
+    error AlreadyClaimed();
 
     constructor(
         address currency_,
@@ -116,6 +135,17 @@ contract MockAuction is ICCA {
     /// landing without yet running a checkpoint).
     function setGraduated(bool graduated_) external {
         pendingGraduated = graduated_;
+    }
+
+    /// @notice Test hook: records `amount` notes as sold/filled to `owner`, matching real CCA's
+    /// bid-fill bookkeeping without modeling the full bid/exit lifecycle. The notes stay
+    /// physically held by this contract (not transferred) until `claimTokens` is called with the
+    /// returned `bidId`.
+    /// @return bidId The id to claim this sale with.
+    function recordSale(address owner, uint256 amount) external returns (uint256 bidId) {
+        bidId = _nextBidId++;
+        _soldLots[bidId] = SoldLot({owner: owner, amount: amount, claimed: false});
+        totalSold += amount;
     }
 
     function onTokensReceived() external {}
@@ -142,6 +172,11 @@ contract MockAuction is ICCA {
         }
     }
 
+    /// @notice Sweeps unsold notes: `balance - totalSold` when graduated (mirrors real CCA's
+    /// `remainingSupply()`), or the whole balance when not (nothing is ever claimable
+    /// pre-graduation, so `totalSold` never actually leaves in that case). Assumes, like real
+    /// production usage, that this runs before any `claimTokens` call empties out sold notes —
+    /// it is only ever called once, atomically, from `CreditLine.settleAuction`.
     function sweepUnsoldTokens() external {
         if (msg.sender != _tokensRecipient) revert NotTokensRecipient();
         if (block.number < _endBlock) revert AuctionNotOver();
@@ -150,14 +185,27 @@ contract MockAuction is ICCA {
         _checkpoint();
 
         uint256 balance = _noteToken.balanceOf(address(this));
-        if (balance != 0) _noteToken.safeTransfer(_tokensRecipient, balance);
+        uint256 unsold = committedGraduated ? balance - totalSold : balance;
+        if (unsold != 0) _noteToken.safeTransfer(_tokensRecipient, unsold);
     }
 
     function endBlock() external view returns (uint64) {
         return _endBlock;
     }
 
-    function claimTokens(uint256) external {}
+    /// @notice Pays out a recorded sale's filled notes to its owner. Only after `endBlock`, only
+    /// once graduated (checkpointing first, like the real contract), and only once per bid.
+    function claimTokens(uint256 bidId) external {
+        if (block.number < _endBlock) revert AuctionNotOver();
+        _checkpoint();
+        if (!committedGraduated) revert NotGraduated();
+
+        SoldLot storage lot = _soldLots[bidId];
+        if (lot.claimed) revert AlreadyClaimed();
+        lot.claimed = true;
+
+        if (lot.amount != 0) _noteToken.safeTransfer(lot.owner, lot.amount);
+    }
 
     function exitBid(uint256) external {}
 

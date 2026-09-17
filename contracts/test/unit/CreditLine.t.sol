@@ -135,13 +135,14 @@ contract CreditLineTest is Test {
     }
 
     // -- Important #4/#9: partial sale -- 5e18 supply, 3e18 sold at $0.90 => principal 2.7e6,
-    // 2e18 unsold burned, note.capUsdc() becomes 3e6. --
+    // only 2e18 unsold burned (the 3e18 sold stays inside the auction, unclaimed, at settle
+    // time -- real CCA: filled bids sit in the auction until each bidder calls `claimTokens`,
+    // which reverts before graduation), note.capUsdc() becomes 3e6, and the bidder can claim
+    // their 3e18 from the auction afterwards. --
 
     function test_settleAuction_partialSaleBurnsOnlyUnsoldRemainder() public {
-        _mintNoteSupplyToAuction(); // full 5e18 supply starts in the auction
-        // Simulate 3e18 notes having been sold/filled to a bidder (real CCA: claimed post-graduation).
-        vm.prank(address(auction));
-        assertTrue(note.transfer(alice, 3e18));
+        _mintNoteSupplyToAuction(); // full 5e18 supply sits in the auction; nothing moves at sale time
+        uint256 bidId = auction.recordSale(alice, 3e18); // 3e18 filled/sold to alice, still held by the auction
 
         usdc.mint(address(auction), 2_700_000); // 3e18 notes * $0.90 raised
         auction.setGraduated(true);
@@ -152,10 +153,16 @@ contract CreditLineTest is Test {
         assertEq(creditLine.principal(), 2_700_000);
         assertEq(usdc.balanceOf(address(creditLine)), 2_700_000);
         assertEq(note.balanceOf(address(creditLine)), 0); // swept-in unsold burned
-        assertEq(note.balanceOf(alice), 3e18); // sold notes untouched
+        assertEq(note.balanceOf(address(auction)), 3e18); // sold notes still held, awaiting claim
         assertEq(note.totalSupply(), 3e18); // 5e18 - 2e18 unsold burned
         assertEq(note.capUsdc(), 3_000_000);
         assertEq(uint8(creditLine.state()), uint8(CreditLine.State.Active));
+
+        // The bidder claims their filled notes from the auction after settlement.
+        assertEq(note.balanceOf(alice), 0);
+        auction.claimTokens(bidId);
+        assertEq(note.balanceOf(alice), 3e18);
+        assertEq(note.balanceOf(address(auction)), 0);
     }
 
     // -- 3. not graduated: state Failed, hub callback (loanId,false), draw => NotActive.
