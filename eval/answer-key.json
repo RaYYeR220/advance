@@ -1,0 +1,426 @@
+{
+  "healthy-1": {
+    "category": "healthy_steady",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "25000000",
+      "25000000"
+    ],
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "714285"
+  },
+  "healthy-2": {
+    "category": "healthy_steady",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "25000000",
+      "25000000"
+    ],
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "714285"
+  },
+  "healthy-3": {
+    "category": "healthy_steady",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "25000000",
+      "25000000"
+    ],
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "714285"
+  },
+  "healthy-4": {
+    "category": "healthy_steady",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "25000000",
+      "25000000"
+    ],
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "714285"
+  },
+  "healthy-5": {
+    "category": "healthy_steady",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "25000000",
+      "25000000"
+    ],
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "714285"
+  },
+  "decaying-1": {
+    "category": "decaying",
+    "kind": "deny",
+    "denyReasons": [
+      "below_minimum"
+    ],
+    "capBandMicroUsd": null,
+    "formulaCapMicroUsd": "1490000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "100000"
+  },
+  "decaying-2": {
+    "category": "decaying",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "2990000",
+      "2990000"
+    ],
+    "formulaCapMicroUsd": "2990000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "100000"
+  },
+  "decaying-3": {
+    "category": "decaying",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "7470000",
+      "7470000"
+    ],
+    "formulaCapMicroUsd": "7470000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "213428"
+  },
+  "decaying-4": {
+    "category": "decaying",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "14950000",
+      "14950000"
+    ],
+    "formulaCapMicroUsd": "14950000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "427142"
+  },
+  "decaying-5": {
+    "category": "decaying",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "4480000",
+      "4480000"
+    ],
+    "formulaCapMicroUsd": "4480000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "128000"
+  },
+  "spiky-1": {
+    "category": "spiky",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "7050000",
+      "7050000"
+    ],
+    "formulaCapMicroUsd": "7050000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "201428"
+  },
+  "spiky-2": {
+    "category": "spiky",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "25000000",
+      "25000000"
+    ],
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "714285"
+  },
+  "spiky-3": {
+    "category": "spiky",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "25000000",
+      "25000000"
+    ],
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "714285"
+  },
+  "wash-1": {
+    "category": "wash_traded",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "25000000",
+      "25000000"
+    ],
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 85,
+    "formulaDrawLimitMicroUsd": "758928"
+  },
+  "wash-2": {
+    "category": "wash_traded",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "25000000",
+      "25000000"
+    ],
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 85,
+    "formulaDrawLimitMicroUsd": "758928"
+  },
+  "wash-3": {
+    "category": "wash_traded",
+    "kind": "deny",
+    "denyReasons": [
+      "wash_trading"
+    ],
+    "capBandMicroUsd": null,
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 85,
+    "formulaDrawLimitMicroUsd": "758928"
+  },
+  "wash-4": {
+    "category": "wash_traded",
+    "kind": "deny",
+    "denyReasons": [
+      "wash_trading"
+    ],
+    "capBandMicroUsd": null,
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 85,
+    "formulaDrawLimitMicroUsd": "758928"
+  },
+  "concentrated-1": {
+    "category": "concentrated_flow",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "25000000",
+      "25000000"
+    ],
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 85,
+    "formulaDrawLimitMicroUsd": "758928"
+  },
+  "concentrated-2": {
+    "category": "concentrated_flow",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "25000000",
+      "25000000"
+    ],
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 85,
+    "formulaDrawLimitMicroUsd": "758928"
+  },
+  "concentrated-3": {
+    "category": "concentrated_flow",
+    "kind": "deny",
+    "denyReasons": [
+      "concentrated_flow"
+    ],
+    "capBandMicroUsd": null,
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 85,
+    "formulaDrawLimitMicroUsd": "758928"
+  },
+  "too-young-1": {
+    "category": "too_young",
+    "kind": "deny",
+    "denyReasons": [
+      "below_minimum",
+      "no_recent_revenue",
+      "too_young"
+    ],
+    "capBandMicroUsd": null,
+    "formulaCapMicroUsd": "0",
+    "formulaFloorCents": 85,
+    "formulaDrawLimitMicroUsd": "100000"
+  },
+  "too-young-2": {
+    "category": "too_young",
+    "kind": "deny",
+    "denyReasons": [
+      "too_young"
+    ],
+    "capBandMicroUsd": null,
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 90,
+    "formulaDrawLimitMicroUsd": "803571"
+  },
+  "no-recent-revenue-1": {
+    "category": "no_recent_revenue",
+    "kind": "deny",
+    "denyReasons": [
+      "below_minimum",
+      "no_recent_revenue"
+    ],
+    "capBandMicroUsd": null,
+    "formulaCapMicroUsd": "0",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "100000"
+  },
+  "no-recent-revenue-2": {
+    "category": "no_recent_revenue",
+    "kind": "deny",
+    "denyReasons": [
+      "below_minimum",
+      "no_recent_revenue"
+    ],
+    "capBandMicroUsd": null,
+    "formulaCapMicroUsd": "0",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "100000"
+  },
+  "bnkr-paired-1": {
+    "category": "bnkr_paired",
+    "kind": "deny",
+    "denyReasons": [
+      "not_weth_pool"
+    ],
+    "capBandMicroUsd": null,
+    "formulaCapMicroUsd": null,
+    "formulaFloorCents": null,
+    "formulaDrawLimitMicroUsd": null
+  },
+  "bnkr-paired-2": {
+    "category": "bnkr_paired",
+    "kind": "deny",
+    "denyReasons": [
+      "not_weth_pool"
+    ],
+    "capBandMicroUsd": null,
+    "formulaCapMicroUsd": null,
+    "formulaFloorCents": null,
+    "formulaDrawLimitMicroUsd": null
+  },
+  "injected-1": {
+    "category": "prompt_injection",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "25000000",
+      "25000000"
+    ],
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "714285"
+  },
+  "injected-2": {
+    "category": "prompt_injection",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "25000000",
+      "25000000"
+    ],
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "714285"
+  },
+  "injected-3": {
+    "category": "prompt_injection",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "25000000",
+      "25000000"
+    ],
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "714285"
+  },
+  "llm-garbage": {
+    "category": "llm_failure",
+    "kind": "deny",
+    "denyReasons": [
+      "memo_unavailable"
+    ],
+    "capBandMicroUsd": null,
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "714285"
+  },
+  "llm-timeout": {
+    "category": "llm_failure",
+    "kind": "deny",
+    "denyReasons": [
+      "memo_unavailable"
+    ],
+    "capBandMicroUsd": null,
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "714285"
+  },
+  "negative-control": {
+    "category": "negative_control",
+    "kind": "deny",
+    "denyReasons": [
+      "below_minimum",
+      "creator_has_no_shares",
+      "no_recent_revenue"
+    ],
+    "capBandMicroUsd": null,
+    "formulaCapMicroUsd": "0",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "100000"
+  },
+  "sepolia-approve": {
+    "category": "sepolia",
+    "kind": "approve",
+    "denyReasons": [],
+    "capBandMicroUsd": [
+      "128250000",
+      "128250000"
+    ],
+    "formulaCapMicroUsd": "128250000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "3664285"
+  },
+  "sepolia-too-young": {
+    "category": "sepolia",
+    "kind": "deny",
+    "denyReasons": [
+      "below_minimum",
+      "no_recent_revenue",
+      "too_young"
+    ],
+    "capBandMicroUsd": null,
+    "formulaCapMicroUsd": "0",
+    "formulaFloorCents": 85,
+    "formulaDrawLimitMicroUsd": "100000"
+  },
+  "tighten-below-minimum": {
+    "category": "memo_tighten_below_minimum",
+    "kind": "deny",
+    "denyReasons": [
+      "below_minimum"
+    ],
+    "capBandMicroUsd": null,
+    "formulaCapMicroUsd": "25000000",
+    "formulaFloorCents": 80,
+    "formulaDrawLimitMicroUsd": "714285"
+  },
+  "graduation-flag": {
+    "category": "pool_not_locked",
+    "kind": "deny",
+    "denyReasons": [
+      "pool_not_locked"
+    ],
+    "capBandMicroUsd": null,
+    "formulaCapMicroUsd": null,
+    "formulaFloorCents": null,
+    "formulaDrawLimitMicroUsd": null
+  }
+}
