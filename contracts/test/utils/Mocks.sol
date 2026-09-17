@@ -10,6 +10,7 @@ contract MockFeed is IChainlink {
     int256 public answer;
     uint256 public startedAt;
     uint256 public updatedAt;
+    uint8 public feedDecimals = 8;
 
     function setAnswer(int256 answer_) external {
         answer = answer_;
@@ -23,8 +24,12 @@ contract MockFeed is IChainlink {
         updatedAt = updatedAt_;
     }
 
-    function decimals() external pure returns (uint8) {
-        return 8;
+    function setDecimals(uint8 decimals_) external {
+        feedDecimals = decimals_;
+    }
+
+    function decimals() external view returns (uint8) {
+        return feedDecimals;
     }
 
     function latestRoundData()

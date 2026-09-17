@@ -94,4 +94,97 @@ contract OracleLibTest is Test {
 
         assertEq(out, 23_760_000);
     }
+
+    function test_minUsdcOut_succeedsWhenSequencerUpPastGracePeriod() public {
+        // The real mainnet path: sequencer genuinely up, well past the grace period.
+        sequencerFeed.setAnswer(0);
+        sequencerFeed.setStartedAt(block.timestamp - (GRACE_PERIOD + 1));
+
+        ethUsdFeed.setAnswer(2400e8);
+        ethUsdFeed.setUpdatedAt(block.timestamp);
+
+        uint256 out = harness.minUsdcOut(1e16, address(ethUsdFeed), address(sequencerFeed), MAX_STALENESS, 100);
+
+        assertEq(out, 23_760_000);
+    }
+
+    function test_minUsdcOut_revertsAtSequencerGraceBoundary() public {
+        // Exactly GRACE_PERIOD elapsed must still be treated as "in grace" (Chainlink reference uses <=).
+        sequencerFeed.setAnswer(0);
+        sequencerFeed.setStartedAt(block.timestamp - GRACE_PERIOD);
+
+        ethUsdFeed.setAnswer(2400e8);
+        ethUsdFeed.setUpdatedAt(block.timestamp);
+
+        vm.expectRevert(OracleLib.SequencerGracePeriod.selector);
+        harness.minUsdcOut(1e16, address(ethUsdFeed), address(sequencerFeed), MAX_STALENESS, 100);
+    }
+
+    function test_minUsdcOut_revertsOnNegativePrice() public {
+        ethUsdFeed.setAnswer(-1);
+        ethUsdFeed.setUpdatedAt(block.timestamp);
+
+        vm.expectRevert(OracleLib.BadPrice.selector);
+        harness.minUsdcOut(1e16, address(ethUsdFeed), address(0), MAX_STALENESS, 100);
+    }
+
+    function test_minUsdcOut_revertsWhenSequencerAnswerIsNonBinary() public {
+        // Fail closed on any nonzero answer, not just the canonical `1`.
+        sequencerFeed.setAnswer(2);
+        sequencerFeed.setStartedAt(block.timestamp - 2 * GRACE_PERIOD);
+
+        ethUsdFeed.setAnswer(2400e8);
+        ethUsdFeed.setUpdatedAt(block.timestamp);
+
+        vm.expectRevert(OracleLib.SequencerDown.selector);
+        harness.minUsdcOut(1e16, address(ethUsdFeed), address(sequencerFeed), MAX_STALENESS, 100);
+    }
+
+    function test_minUsdcOut_revertsWhenSequencerStartedAtIsZero() public {
+        // An uninitialized/never-started sequencer round must not be treated as "up forever".
+        sequencerFeed.setAnswer(0);
+        sequencerFeed.setStartedAt(0);
+
+        ethUsdFeed.setAnswer(2400e8);
+        ethUsdFeed.setUpdatedAt(block.timestamp);
+
+        vm.expectRevert(OracleLib.SequencerDown.selector);
+        harness.minUsdcOut(1e16, address(ethUsdFeed), address(sequencerFeed), MAX_STALENESS, 100);
+    }
+
+    function test_minUsdcOut_revertsOnFutureSequencerStartedAt() public {
+        sequencerFeed.setAnswer(0);
+        sequencerFeed.setStartedAt(block.timestamp + 1);
+
+        ethUsdFeed.setAnswer(2400e8);
+        ethUsdFeed.setUpdatedAt(block.timestamp);
+
+        vm.expectRevert(OracleLib.InvalidTimestamp.selector);
+        harness.minUsdcOut(1e16, address(ethUsdFeed), address(sequencerFeed), MAX_STALENESS, 100);
+    }
+
+    function test_minUsdcOut_revertsOnFutureUpdatedAt() public {
+        ethUsdFeed.setAnswer(2400e8);
+        ethUsdFeed.setUpdatedAt(block.timestamp + 1);
+
+        vm.expectRevert(OracleLib.InvalidTimestamp.selector);
+        harness.minUsdcOut(1e16, address(ethUsdFeed), address(0), MAX_STALENESS, 100);
+    }
+
+    function test_minUsdcOut_revertsOnExcessiveSlippage() public {
+        ethUsdFeed.setAnswer(2400e8);
+        ethUsdFeed.setUpdatedAt(block.timestamp);
+
+        vm.expectRevert(OracleLib.InvalidSlippage.selector);
+        harness.minUsdcOut(1e16, address(ethUsdFeed), address(0), MAX_STALENESS, 10_001);
+    }
+
+    function test_minUsdcOut_revertsOnInvalidFeedDecimals() public {
+        ethUsdFeed.setDecimals(18);
+        ethUsdFeed.setAnswer(2400e8);
+        ethUsdFeed.setUpdatedAt(block.timestamp);
+
+        vm.expectRevert(OracleLib.InvalidFeedDecimals.selector);
+        harness.minUsdcOut(1e16, address(ethUsdFeed), address(0), MAX_STALENESS, 100);
+    }
 }
