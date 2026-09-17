@@ -9,12 +9,15 @@ import {MockERC20, MockAuction, MockHub} from "../utils/Mocks.sol";
 /// @notice Handler driving `draw` (unbounded amount, random caller, wrapped in try/catch so only
 /// successful draws count) and arbitrary-second time warps against an already-Active CreditLine.
 /// The per-period ghost bucket is computed independently of `creditLine.currentPeriod()` (from
-/// `activatedAt`/`drawPeriod` directly), so a bug in that contract function can't hide from the
+/// an `activatedAt` snapshot taken once in `setUp`, plus `drawPeriod`), so a bug in that contract
+/// function -- or in `activatedAt` itself, if it somehow drifted -- can't hide from the
 /// invariants by consistently mis-bucketing both sides the same way.
 contract CreditLineHandler is Test {
     CreditLine public creditLine;
     address public card;
     uint64 public immutable ghostDrawPeriod;
+    /// @dev Snapshotted once in `setUp`, not re-read from the contract on every call.
+    uint64 public immutable ghostActivatedAt;
 
     /// @dev Per-period cumulative draws, kept for debugging a failing run.
     mapping(uint64 period => uint256 drawn) public drawnInPeriod;
@@ -24,19 +27,25 @@ contract CreditLineHandler is Test {
     uint256 public sumDrawn;
     /// @notice Count of draw attempts that succeeded (always by `card`).
     uint256 public successfulDraws;
+    /// @notice Set true if a `draw` call from anyone other than `card` ever succeeds. A plain
+    /// `assertEq` inside the `try` success branch does not fail the invariant suite (a revert
+    /// from a failed assertion inside a handler call is indistinguishable from any other
+    /// handler-call revert to the runner), so this ghost flag is checked explicitly by
+    /// `invariant_cardIsOnlyDrawRecipient` instead.
+    bool public nonCardDrawSucceeded;
 
-    constructor(CreditLine creditLine_, address card_) {
+    constructor(CreditLine creditLine_, address card_, uint64 ghostActivatedAt_) {
         creditLine = creditLine_;
         card = card_;
         ghostDrawPeriod = creditLine_.drawPeriod();
+        ghostActivatedAt = ghostActivatedAt_;
     }
 
     /// @dev Computed independently of `creditLine.currentPeriod()`: same formula, but evaluated
-    /// here from raw state rather than by calling into the contract under test.
+    /// here from a locally-held snapshot rather than by calling into the contract under test.
     function _ghostPeriod() internal view returns (uint64) {
-        uint64 activatedAt = creditLine.activatedAt();
-        if (activatedAt == 0) return 0;
-        return (uint64(block.timestamp) - activatedAt) / ghostDrawPeriod;
+        if (ghostActivatedAt == 0) return 0;
+        return (uint64(block.timestamp) - ghostActivatedAt) / ghostDrawPeriod;
     }
 
     /// @notice Attempts a draw of an unbounded amount from a mostly-random caller (only `card`
@@ -51,7 +60,10 @@ contract CreditLineHandler is Test {
 
         vm.prank(caller);
         try creditLine.draw(amount) {
-            assertEq(caller, card); // only the card may ever succeed
+            if (caller != card) {
+                nonCardDrawSucceeded = true;
+                return;
+            }
             uint256 newPeriodTotal = drawnInPeriod[period] + amount;
             drawnInPeriod[period] = newPeriodTotal;
             if (newPeriodTotal > maxDrawnInAnyPeriod) maxDrawnInAnyPeriod = newPeriodTotal;
@@ -112,7 +124,7 @@ contract CreditLineInvariantTest is Test {
         vm.roll(END_BLOCK + 1);
         creditLine.settleAuction();
 
-        handler = new CreditLineHandler(creditLine, card);
+        handler = new CreditLineHandler(creditLine, card, creditLine.activatedAt());
         targetContract(address(handler));
     }
 
@@ -121,10 +133,11 @@ contract CreditLineInvariantTest is Test {
         assertLe(handler.maxDrawnInAnyPeriod(), DRAW_LIMIT);
     }
 
-    /// @notice `draw` never pays anyone but the card: the card's USDC balance always equals
-    /// `totalDrawn`, and every USDC that left the credit line is accounted for by `totalDrawn`
-    /// (conservation against the swept principal).
+    /// @notice `draw` never pays anyone but the card: no non-card caller's draw ever succeeded,
+    /// the card's USDC balance always equals `totalDrawn`, and every USDC that left the credit
+    /// line is accounted for by `totalDrawn` (conservation against the swept principal).
     function invariant_cardIsOnlyDrawRecipient() public view {
+        assertFalse(handler.nonCardDrawSucceeded());
         assertEq(usdc.balanceOf(card), creditLine.totalDrawn());
         assertEq(usdc.balanceOf(card), handler.sumDrawn());
         assertEq(usdc.balanceOf(address(creditLine)) + creditLine.totalDrawn(), creditLine.principal());
