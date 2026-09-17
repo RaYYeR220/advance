@@ -3,7 +3,7 @@
  * chain-native equivalent of Bankr's `token-fees` API). Verified live on both chains:
  * `getModuleState(dopplerFeesManager) == PoolInitializer (3)` and a real `getAssetData`
  * lookup against a known token (Ratspeak on Base mainnet, the Sepolia test launch on Base
- * Sepolia) using known real tokens (Ratspeak on mainnet, the Sepolia test launch).
+ * Sepolia).
  */
 export const airlockAbi = [
   /**

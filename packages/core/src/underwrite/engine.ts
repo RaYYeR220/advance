@@ -218,6 +218,19 @@ function validateInput(
     throw new InvalidUnderwriteInput(errorMessage(err));
   }
 
+  // Env/chain binding: mainnet money math (the $25 hard ceiling, the real signer) must
+  // never run under a "demo" env, and a demo/testnet chain must never run under
+  // "mainnet" policy — either combination would either sign a real term sheet against a
+  // toy $10k ceiling, or hold a real chain to relaxed demo assumptions.
+  if (input.chainId === 8453 && deps.env.network !== "mainnet") {
+    throw new InvalidUnderwriteInput(
+      `chainId 8453 requires env.network "mainnet", got "${deps.env.network}"`,
+    );
+  }
+  if (input.chainId === 84532 && deps.env.network === "mainnet") {
+    throw new InvalidUnderwriteInput('chainId 84532 must not use env.network "mainnet"');
+  }
+
   return { ...input, token, agentCard, hub };
 }
 
@@ -326,13 +339,41 @@ function buildDataUnavailableDeny(
 type DiscoveryStep = { result: DiscoveryResult } | { deny: Stage1Deny };
 
 /**
+ * Binds a discovery claim to the token via an independent on-chain read — the claimed
+ * `feesManager` must be the chain's own known Doppler deployment, and the claimed
+ * `poolId` must equal `keccak256(abi.encode(poolKey))` from that feesManager's own
+ * `getState(token)`. This is never applied to an Airlock result: `createAirlockDiscoverySource`
+ * already rejects an unknown `feesManager` before returning (so it can never reach here
+ * with one), and its `poolId` is always derived from this same `getState` read, never an
+ * independent claim.
+ */
+async function isBoundToToken(
+  reader: ChainReader,
+  addresses: ReturnType<typeof chainAddresses>,
+  token: Address,
+  claim: DiscoveryResult,
+): Promise<boolean> {
+  if (claim.feesManager.toLowerCase() !== addresses.dopplerFeesManager.toLowerCase()) {
+    return false;
+  }
+  const assetState = await reader.getAssetState(claim.feesManager, token);
+  return assetState.poolId.toLowerCase() === claim.poolId.toLowerCase();
+}
+
+/**
  * Resolves who the pool/feesManager/creator are for `input.token`. On Base mainnet, both
- * Bankr and the on-chain Airlock source are consulted concurrently and must agree on
- * `feesManager`/`poolId`/`numeraire` (a disagreement — including only one side finding a
- * pool at all — denies `data_unavailable` with both raw views in evidence). Off mainnet,
- * Airlock is the only source (Bankr has no non-mainnet data). Either way, a genuine "no
- * pool for this token" from every consulted source denies `not_bankr_doppler`; any other
- * failure (a real outage, malformed data) propagates so the caller fails closed.
+ * Bankr and the on-chain Airlock source are consulted concurrently. Bankr's own claim is
+ * bound to the token first (`isBoundToToken`, an independent on-chain read, checked
+ * before comparing it to Airlock at all) — a provably wrong `feesManager`/`poolId` is a
+ * definitive on-chain fact and denies `not_bankr_doppler` even if Airlock happens to have
+ * failed the same way (or agree on something else). Only once Bankr's own claim is bound
+ * does a *disagreement* with Airlock (on `feesManager`/`poolId`/`numeraire`), or only one
+ * side finding a pool at all, deny `data_unavailable` with both raw views in evidence.
+ * Finally, Bankr's claimed creator must actually be one of the pool's `Lock` beneficiaries
+ * (never just trusted outright) — if it isn't, that's also `data_unavailable`. Off
+ * mainnet, Airlock is the only source (Bankr has no non-mainnet data). Either way, a
+ * genuine "no pool for this token" from every consulted source denies `not_bankr_doppler`;
+ * any other failure (a real outage, malformed data) propagates so the caller fails closed.
  */
 async function resolveDiscovery(
   input: UnderwriteInput,
@@ -341,7 +382,11 @@ async function resolveDiscovery(
   progress: Progress,
 ): Promise<DiscoveryStep> {
   const addresses = chainAddresses(input.chainId);
-  const airlockSource = createAirlockDiscoverySource(reader, addresses.dopplerAirlock);
+  const airlockSource = createAirlockDiscoverySource(
+    reader,
+    addresses.dopplerAirlock,
+    addresses.dopplerFeesManager,
+  );
 
   if (input.chainId !== 8453) {
     try {
@@ -382,6 +427,15 @@ async function resolveDiscovery(
   if (!bankrResult && !airlockResult) {
     return { deny: buildDeny(input, progress, ["not_bankr_doppler"]) };
   }
+
+  if (bankrResult && !(await isBoundToToken(reader, addresses, input.token, bankrResult))) {
+    return {
+      deny: buildDeny(input, progress, ["not_bankr_doppler"], {
+        discovery: progress.discoveryViews,
+      }),
+    };
+  }
+
   if (!bankrResult || !airlockResult) {
     return {
       deny: buildDeny(input, progress, ["data_unavailable"], {
@@ -395,6 +449,18 @@ async function resolveDiscovery(
     bankrResult.poolId.toLowerCase() === airlockResult.poolId.toLowerCase() &&
     bankrResult.numeraire.toLowerCase() === airlockResult.numeraire.toLowerCase();
   if (!agree) {
+    return {
+      deny: buildDeny(input, progress, ["data_unavailable"], {
+        discovery: progress.discoveryViews,
+      }),
+    };
+  }
+
+  const beneficiaries = await reader.getLockBeneficiaries(bankrResult.feesManager, input.token);
+  const creatorIsBeneficiary = beneficiaries.some(
+    (b) => b.beneficiary.toLowerCase() === bankrResult.creator.toLowerCase(),
+  );
+  if (!creatorIsBeneficiary) {
     return {
       deny: buildDeny(input, progress, ["data_unavailable"], {
         discovery: progress.discoveryViews,
@@ -426,22 +492,12 @@ async function runStage1(
   progress.feesManager = discovery.feesManager;
   progress.poolId = discovery.poolId;
 
-  // Bind the pool to the token: the claimed feesManager must be the chain's known Doppler
-  // deployment, and the claimed poolId must equal the on-chain poolKey's own hash — a
-  // wrong layout or an unknown initializer is a definitive on-chain fact, not a
-  // source-disagreement ambiguity, so it denies `not_bankr_doppler` even when only one
-  // source was ever consulted (Sepolia).
-  if (discovery.feesManager.toLowerCase() !== addresses.dopplerFeesManager.toLowerCase()) {
-    return buildDeny(input, progress, ["not_bankr_doppler"], {
-      discovery: progress.discoveryViews,
-    });
-  }
+  // `discovery` is already bound to the token here: `resolveDiscovery` verified a Bankr
+  // claim via `isBoundToToken` before ever returning it, and an Airlock result is bound
+  // by construction (its poolId comes from this same getState read, and its feesManager
+  // was already checked against the chain's known deployment). This read is purely for
+  // the poolKey/status/hook data the WETH and pool-eligibility checks need next.
   const assetState = await reader.getAssetState(discovery.feesManager, input.token);
-  if (assetState.poolId.toLowerCase() !== discovery.poolId.toLowerCase()) {
-    return buildDeny(input, progress, ["not_bankr_doppler"], {
-      discovery: progress.discoveryViews,
-    });
-  }
 
   const isWethPool =
     assetState.poolKey.currency0.toLowerCase() === addresses.weth.toLowerCase() ||

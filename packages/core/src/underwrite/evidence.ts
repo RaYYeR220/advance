@@ -60,10 +60,15 @@ export interface EvidenceBundle {
    * raw error object, and never an API key. */
   error?: string;
   /**
-   * Present only when more than one discovery source was consulted for this token (Base
-   * mainnet always cross-checks Bankr against the on-chain Airlock source) — both raw
-   * views, so a cross-check mismatch (`data_unavailable`) is auditable rather than a bare
-   * reason code.
+   * Present only on a `deny` that discovery itself produced — a Bankr claim that fails
+   * the independent on-chain binding check, only one of Bankr/Airlock finding a pool at
+   * all, the two sources disagreeing, or Bankr's claimed creator not being one of the
+   * pool's `Lock` beneficiaries. Absent for a deny reached after discovery already
+   * succeeded (`not_weth_pool`, `pool_not_locked`, a hard rule, `below_minimum`, ...) and
+   * for an approval. Holds whichever view(s) were actually obtained before the deny —
+   * only `bankr` when Airlock never resolved anything, only `airlock` when Bankr didn't,
+   * or both when both resolved but disagreed (or the creator-membership check failed) —
+   * so the mismatch is auditable rather than a bare reason code.
    */
   discovery?: {
     bankr?: DiscoveryResult;

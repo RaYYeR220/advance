@@ -199,13 +199,18 @@ export interface ChainReader {
   /** `eth_chainId`, cached per reader instance. */
   getChainId(): Promise<number>;
   /** The `Lock` event's beneficiary list for `asset` — the on-chain source of "who holds
-   * shares", used by Airlock discovery. */
+   * shares", used by Airlock discovery. Scans forward from the token's own creation
+   * block in chunks (never from block 0 — see `LOCK_LOG_CHUNK_BLOCKS`). */
   getLockBeneficiaries(feesManager: Address, asset: Address): Promise<LockBeneficiary[]>;
   /** `Airlock.getAssetData(asset)` — thin passthrough, used by Airlock discovery. */
   getAirlockAssetData(airlock: Address, asset: Address): Promise<AirlockAssetData>;
 }
 
 const SWAP_LOG_CHUNK_BLOCKS = 10_000n;
+/** Lock events are one-time (never a high-volume query like swaps), so a much wider
+ * window than `SWAP_LOG_CHUNK_BLOCKS` is safe — this only exists to avoid a capped RPC
+ * rejecting a single overly large range, not to bound result volume. */
+const LOCK_LOG_CHUNK_BLOCKS = 500_000n;
 const DEFAULT_SWAP_CAP = 400;
 /** Base block time used only to seed the `blockAt` binary search guess. */
 const SECONDS_PER_BLOCK_GUESS = 2n;
@@ -484,11 +489,29 @@ export function buildChainReader(ops: ChainOps): ChainReader {
     return chainIdCache;
   }
 
-  function getLockBeneficiaries(
+  /**
+   * `Lock` fires exactly once per asset, so this scans forward from the token's own
+   * creation block (never from block 0 — a capped RPC rejects a full-history query even
+   * with a topic filter) in `LOCK_LOG_CHUNK_BLOCKS`-sized windows, stopping as soon as a
+   * chunk returns a hit. Chunking beyond one window only matters for a token whose
+   * creation-to-Lock gap is unusually large; in the normal Doppler flow (token deployed
+   * and locked in the same transaction) the first chunk always has it.
+   */
+  async function getLockBeneficiaries(
     feesManager: Address,
     asset: Address,
   ): Promise<LockBeneficiary[]> {
-    return ops.getLockBeneficiaries(feesManager, asset);
+    const createdAt = await tokenCreatedAt(asset);
+    const latest = await getLatestBlock();
+    for (let start = createdAt.block; start <= latest.number; start += LOCK_LOG_CHUNK_BLOCKS) {
+      const end =
+        start + LOCK_LOG_CHUNK_BLOCKS - 1n > latest.number
+          ? latest.number
+          : start + LOCK_LOG_CHUNK_BLOCKS - 1n;
+      const chunk = await ops.getLockBeneficiaries(feesManager, asset, start, end);
+      if (chunk.length > 0) return chunk;
+    }
+    return [];
   }
 
   function getAirlockAssetData(

@@ -13,16 +13,25 @@
  * printing or committing it. Falls back to the public defaults, which may reject archive
  * `eth_call`s at old blocks.
  *
- * Writes: test/fixtures/<slug>/bankr.json (mainnet only), test/fixtures/<slug>/chain.json
+ * Writes: test/fixtures/<slug>/bankr.json (mainnet only), test/fixtures/<slug>/chain.json.
+ * Writes neither when the result is `data_unavailable` — that's a broken/incomplete
+ * recording, not a fixture worth committing — the (URL-redacted) error is printed instead.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Address } from "viem";
-import { BASE_RPC_URL_DEFAULT, type SupportedChainId } from "../src/chains.js";
-import { createBankrClient, pickBankrToken, type BankrClient } from "../src/sources/bankr.js";
+import type { Address, Hex } from "viem";
+import { chainAddresses, BASE_RPC_URL_DEFAULT, type SupportedChainId } from "../src/chains.js";
+import {
+  createBankrClient,
+  createFixtureBankrClient,
+  pickBankrToken,
+  type BankrClient,
+  type BankrTokenFeesResponse,
+} from "../src/sources/bankr.js";
 import { createLiveChainOps } from "../src/sources/chainOps.js";
 import type { ChainFixture } from "../src/sources/chainFixture.js";
+import { buildChainReader, type ChainReader } from "../src/sources/chainLogic.js";
 import { score } from "../src/underwrite/engine.js";
 
 const BASE_SEPOLIA_RPC_URL_DEFAULT = "https://sepolia.base.org";
@@ -30,14 +39,46 @@ const BASE_SEPOLIA_RPC_URL_DEFAULT = "https://sepolia.base.org";
 const here = dirname(fileURLToPath(import.meta.url));
 const fixturesRoot = resolve(here, "../test/fixtures");
 
-function parseChainFlag(argv: string[]): SupportedChainId {
-  const flag = argv.find((a) => a.startsWith("--chain="));
-  if (!flag) return 8453;
-  const value = Number(flag.slice("--chain=".length));
-  if (value !== 8453 && value !== 84532) {
-    throw new Error(`--chain must be 8453 or 84532, got ${flag}`);
+/** Never let an RPC URL (or anything else that looks like one) reach stdout/stderr. */
+function redactUrl(message: string): string {
+  return message.replace(/(https?|wss?):\/\/\S+/gi, "[redacted]");
+}
+
+interface Args {
+  token: Address;
+  slug: string | undefined;
+  chainId: SupportedChainId;
+}
+
+/** Strips every `--flag=value` argument first, then reads token/slug from the remaining
+ * *positional* arguments only — so `--chain=84532` (or any future flag) can never be
+ * accidentally parsed as the slug. Only the `--flag=value` form is accepted (matching the
+ * documented usage); a bare `--chain 84532` would otherwise need lookahead that risks the
+ * same positional-index confusion this is meant to avoid. */
+function parseArgs(argv: string[]): Args {
+  const positionals: string[] = [];
+  let chainId: SupportedChainId = 8453;
+
+  for (const arg of argv) {
+    if (arg.startsWith("--chain=")) {
+      const raw = arg.slice("--chain=".length);
+      const value = Number(raw);
+      if (value !== 8453 && value !== 84532) {
+        throw new Error(`--chain must be 8453 or 84532, got ${raw}`);
+      }
+      chainId = value;
+    } else if (arg.startsWith("--")) {
+      throw new Error(`unknown flag: ${arg}`);
+    } else {
+      positionals.push(arg);
+    }
   }
-  return value;
+
+  const token = positionals[0] as Address | undefined;
+  if (!token) {
+    throw new Error("usage: record-fixture.ts <token> [slug] [--chain=8453|84532]");
+  }
+  return { token, slug: positionals[1], chainId };
 }
 
 /** Bankr has no non-mainnet data; off Base mainnet the engine never calls it (discovery
@@ -45,19 +86,47 @@ function parseChainFlag(argv: string[]): SupportedChainId {
 function unreachableBankrClient(): BankrClient {
   return {
     async getTokenFees(token: Address) {
-      throw new Error(`record-fixture: bankr client unexpectedly called for ${token} (non-mainnet chain)`);
+      throw new Error(
+        `record-fixture: bankr client unexpectedly called for ${token} (non-mainnet chain)`,
+      );
     },
   };
 }
 
-async function main() {
-  const positionals = process.argv.slice(2).filter((a) => !a.startsWith("--"));
-  const token = positionals[0] as Address | undefined;
-  if (!token) {
-    console.error("usage: record-fixture.ts <token> [slug] [--chain=8453|84532]");
-    process.exit(1);
+/**
+ * `score()`'s recording layer keeps every chunk's own top-`cap` swaps (see
+ * `createRecordingChainOps`'s `getSwapLogs`), which can still be more than the fixture
+ * ever needs once merged across chunks and capped globally. This re-derives the exact
+ * (blockNumber, logIndex) set that actually made the final capped result — one more live
+ * `getSwaps` call, using the reader that already has every earlier read cached — and
+ * trims `swapLogs` down to just those, the same global trim the engine's own consumer
+ * (`chainLogic.ts#getSwaps`) applies at read time.
+ */
+async function trimSwapLogsToContributing(
+  calls: ChainFixture["calls"],
+  reader: ChainReader,
+  poolManager: Address,
+  poolId: Hex,
+  swapSample: { fromBlock: bigint; toBlock: bigint; cap: number },
+): Promise<void> {
+  if (swapSample.cap === 0) return; // discovery/rules denied before swaps were ever read
+  const swaps = await reader.getSwaps({
+    poolManager,
+    poolId,
+    fromBlock: swapSample.fromBlock,
+    toBlock: swapSample.toBlock,
+    cap: swapSample.cap,
+  });
+  const contributingKeys = new Set(swaps.map((s) => `${s.blockNumber}:${s.logIndex}`));
+  for (const key of Object.keys(calls.swapLogs)) {
+    calls.swapLogs[key] = calls.swapLogs[key]!.filter((log) =>
+      contributingKeys.has(`${log.blockNumber}:${log.logIndex}`),
+    );
   }
-  const chainId = parseChainFlag(process.argv.slice(2));
+}
+
+async function main() {
+  const { token, slug: slugArg, chainId } = parseArgs(process.argv.slice(2));
 
   const rpcUrl =
     process.env.BASE_RPC_URL_OVERRIDE ??
@@ -65,24 +134,23 @@ async function main() {
       ? (process.env.BASE_RPC_URL ?? BASE_RPC_URL_DEFAULT)
       : (process.env.BASE_SEPOLIA_RPC_URL ?? BASE_SEPOLIA_RPC_URL_DEFAULT));
 
-  let bankr: BankrClient;
-  let slug: string;
+  let bankrForScoring: BankrClient;
+  let bankrResponse: BankrTokenFeesResponse | undefined;
+  let slug = slugArg;
+
   if (chainId === 8453) {
+    // Fetched once, live; `score()` below reuses this exact response instead of hitting
+    // the network a second time for the same token.
     const liveBankr = createBankrClient();
-    const bankrResponse = await liveBankr.getTokenFees(token);
+    bankrResponse = await liveBankr.getTokenFees(token);
     const entry = pickBankrToken(bankrResponse, token);
-    slug = process.argv[3]?.startsWith("--") ? entry.symbol.toLowerCase() : (process.argv[3] ?? entry.symbol.toLowerCase());
-    const outDir = resolve(fixturesRoot, slug);
-    mkdirSync(outDir, { recursive: true });
-    writeFileSync(
-      resolve(outDir, "bankr.json"),
-      JSON.stringify(bankrResponse, null, 2) + "\n",
-    );
-    bankr = liveBankr;
+    slug = slug ?? entry.symbol.toLowerCase();
+    bankrForScoring = createFixtureBankrClient(bankrResponse);
   } else {
-    slug = process.argv[3]?.startsWith("--") ? token.toLowerCase() : (process.argv[3] ?? token.toLowerCase());
-    bankr = unreachableBankrClient();
+    slug = slug ?? token.toLowerCase();
+    bankrForScoring = unreachableBankrClient();
   }
+
   const outDir = resolve(fixturesRoot, slug);
   mkdirSync(outDir, { recursive: true });
 
@@ -93,15 +161,38 @@ async function main() {
   const liveOps = createLiveChainOps(rpcUrl);
   const result = await score(
     { token, agentCard: token, agentId: 0n, chainId, hub: token, now: Math.floor(Date.now() / 1000) },
-    { bankr, chain: liveOps, env: { network: chainId === 8453 ? "mainnet" : "demo" } },
+    { bankr: bankrForScoring, chain: liveOps, env: { network: chainId === 8453 ? "mainnet" : "demo" } },
   );
 
   console.log(`score() result: kind=${result.kind}`);
   if (result.kind === "deny") {
     console.log(`  reasons: ${result.reasons.join(", ")}`);
   } else {
-    console.log(
-      `  capMicroUsd=${result.terms.capMicroUsd} haircutBps=${result.terms.haircutBps}`,
+    console.log(`  capMicroUsd=${result.terms.capMicroUsd} haircutBps=${result.terms.haircutBps}`);
+  }
+
+  if (result.kind === "deny" && result.reasons.includes("data_unavailable")) {
+    console.error(
+      `record-fixture: data_unavailable — not writing a fixture from a broken/incomplete ` +
+        `recording. error: ${redactUrl(result.evidence.error ?? "(no error message recorded)")}`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const reader = buildChainReader(liveOps);
+  await trimSwapLogsToContributing(
+    result.evidence.rawReads,
+    reader,
+    chainAddresses(chainId).poolManager,
+    result.evidence.poolId,
+    result.evidence.swapSample,
+  );
+
+  if (bankrResponse) {
+    writeFileSync(
+      resolve(outDir, "bankr.json"),
+      JSON.stringify(bankrResponse, null, 2) + "\n",
     );
   }
 
@@ -121,6 +212,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err);
+  console.error(redactUrl(err instanceof Error ? err.message : String(err)));
   process.exit(1);
 });

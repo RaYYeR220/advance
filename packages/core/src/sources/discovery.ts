@@ -78,15 +78,25 @@ export function createBankrDiscoverySource(bankr: BankrClient): DiscoverySource 
  * numeraire, `DopplerHookInitializer.getState` for the true poolKey/poolId, and the
  * `Lock` event's beneficiary list for the creator — no off-chain dependency at all, so
  * this is the only discovery source available off Base mainnet (e.g. Base Sepolia).
+ *
+ * `knownFeesManager` is the chain's own Doppler `FeesManager` constant
+ * (`chainAddresses(chainId).dopplerFeesManager`) — `getAssetData`'s `poolInitializer` is
+ * rejected as not-found immediately when it isn't that address, before any further call
+ * (`getState`, the `Lock` log query), the same way an unknown `poolInitializer` is treated
+ * as "no real Doppler pool" everywhere else in the engine.
  */
 export function createAirlockDiscoverySource(
   reader: ChainReader,
   airlock: Address,
+  knownFeesManager: Address,
 ): DiscoverySource {
   return {
     async discover(token) {
       const assetData = await reader.getAirlockAssetData(airlock, token);
-      if (assetData.poolInitializer.toLowerCase() === ZERO_ADDRESS) {
+      if (
+        assetData.poolInitializer.toLowerCase() === ZERO_ADDRESS ||
+        assetData.poolInitializer.toLowerCase() !== knownFeesManager.toLowerCase()
+      ) {
         throw new DiscoveryNotFoundError("airlock", token);
       }
 
@@ -95,7 +105,18 @@ export function createAirlockDiscoverySource(
         assetData.poolInitializer,
         token,
       );
-      const creator = pickMajorityBeneficiary(beneficiaries) ?? ZERO_ADDRESS;
+      // The `Lock` event's recorded shares are a snapshot at lock time — a later
+      // `updateBeneficiary` call can move shares between the same beneficiaries without
+      // emitting another `Lock`, so the majority pick must use each candidate's *current*
+      // on-chain shares, not the event's own numbers.
+      const currentShares = await Promise.all(
+        beneficiaries.map((b) => reader.getShares(assetData.poolInitializer, assetState.poolId, b.beneficiary)),
+      );
+      const withCurrentShares = beneficiaries.map((b, i) => ({
+        beneficiary: b.beneficiary,
+        shares: currentShares[i]!,
+      }));
+      const creator = pickMajorityBeneficiary(withCurrentShares) ?? ZERO_ADDRESS;
 
       return {
         source: "airlock",

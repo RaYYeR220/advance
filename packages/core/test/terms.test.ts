@@ -13,7 +13,10 @@ import {
   pickBankrToken,
   type BankrTokenFeesResponse,
 } from "../src/sources/bankr.js";
-import { BASE_ETH_USD_CHAINLINK_FEED, BASE_V4_POOL_MANAGER, BASE_WETH } from "../src/chains.js";
+import { chainAddresses } from "../src/chains.js";
+
+const { weth: BASE_WETH, poolManager: BASE_V4_POOL_MANAGER, ethUsdFeed: BASE_ETH_USD_CHAINLINK_FEED } =
+  chainAddresses(8453);
 import { applyRules, termsDenyReasons } from "../src/underwrite/rules.js";
 
 const DAY = 86_400n;

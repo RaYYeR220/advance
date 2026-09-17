@@ -83,7 +83,9 @@ export interface ChainFixture {
     assetState: Record<string, AssetStateJson>;
     /** `${feesManager}:${dopplerHook}` -> `isDopplerHookEnabled` flags (decimal string). */
     dopplerHookFlags: Record<string, string>;
-    /** `${feesManager}:${asset}` -> the `Lock` event's beneficiary list. */
+    /** `${feesManager}:${asset}:${fromBlock}:${toBlock}` -> the `Lock` event's beneficiary
+     * list in that chunk (usually just one chunk starting at the token's creation block —
+     * see `LOCK_LOG_CHUNK_BLOCKS`). */
     lockBeneficiaries: Record<string, LockBeneficiaryJson[]>;
     /** `${airlock}:${asset}` -> `Airlock.getAssetData(asset)`. */
     airlockAssetData: Record<string, AirlockAssetDataJson>;
@@ -314,8 +316,8 @@ export function createFixtureChainOps(fixture: ChainFixture): ChainOps {
       return calls.chainId;
     },
 
-    async getLockBeneficiaries(feesManager, asset) {
-      const k = key(feesManager, asset);
+    async getLockBeneficiaries(feesManager, asset, fromBlock, toBlock) {
+      const k = key(feesManager, asset, fromBlock, toBlock);
       const entry = calls.lockBeneficiaries[k];
       if (!entry) throw new FixtureMissError("getLockBeneficiaries", k);
       return entry.map((b) => ({ beneficiary: b.beneficiary, shares: BigInt(b.shares) }));
@@ -465,9 +467,9 @@ export function createRecordingChainOps(
       return result;
     },
 
-    async getLockBeneficiaries(feesManager, asset) {
-      const result = await live.getLockBeneficiaries(feesManager, asset);
-      calls.lockBeneficiaries[key(feesManager, asset)] = result.map((b) => ({
+    async getLockBeneficiaries(feesManager, asset, fromBlock, toBlock) {
+      const result = await live.getLockBeneficiaries(feesManager, asset, fromBlock, toBlock);
+      calls.lockBeneficiaries[key(feesManager, asset, fromBlock, toBlock)] = result.map((b) => ({
         beneficiary: b.beneficiary,
         shares: b.shares.toString(),
       }));

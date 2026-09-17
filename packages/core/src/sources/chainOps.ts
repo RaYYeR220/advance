@@ -138,13 +138,16 @@ export interface ChainOps {
   getDopplerHookFlags(feesManager: Address, dopplerHook: Address): Promise<bigint>;
   /** `eth_chainId` — used to guard against a `ChainReader` wired to the wrong network. */
   getChainId(): Promise<number>;
-  /** `DopplerHookInitializer`'s `Lock` event for `asset`, decoded — the on-chain source of
-   * "who are the beneficiaries and what are their shares" (`getState`'s default getter
-   * can't return this: it's a dynamic array field). Used by the Airlock discovery source
-   * to pick a creator without depending on Bankr. */
+  /** `DopplerHookInitializer`'s `Lock` event for `asset` over `[fromBlock, toBlock]`,
+   * decoded — the on-chain source of "who are the beneficiaries and what are their
+   * shares" (`getState`'s default getter can't return this: it's a dynamic array field).
+   * The caller (`chainLogic.ts`) chunks and picks the range — never queried from block 0,
+   * which a capped RPC rejects even with a topic filter. */
   getLockBeneficiaries(
     feesManager: Address,
     asset: Address,
+    fromBlock: bigint,
+    toBlock: bigint,
   ): Promise<LockBeneficiary[]>;
   /** `Airlock.getAssetData(asset)` — the on-chain discovery source, cross-checked against
    * (or, off Base mainnet, used instead of) Bankr. */
@@ -314,13 +317,13 @@ export function createLiveChainOps(rpcUrl: string): ChainOps {
       return client.getChainId();
     },
 
-    async getLockBeneficiaries(feesManager, asset) {
+    async getLockBeneficiaries(feesManager, asset, fromBlock, toBlock) {
       const logs = await client.getLogs({
         address: feesManager,
         event: feesManagerLockEventAbi[0],
         args: { asset },
-        fromBlock: 0n,
-        toBlock: "latest",
+        fromBlock,
+        toBlock,
       });
       return logs.flatMap((log) =>
         (log.args.beneficiaries ?? []).map((b) => ({

@@ -14,7 +14,9 @@ import {
   FixtureMissError,
   type ChainFixture,
 } from "../src/sources/chain.js";
-import { BASE_V4_POOL_MANAGER, BASE_WETH } from "../src/chains.js";
+import { chainAddresses } from "../src/chains.js";
+
+const { weth: BASE_WETH, poolManager: BASE_V4_POOL_MANAGER } = chainAddresses(8453);
 
 function loadFixture<T>(slug: string, file: "bankr" | "chain"): T {
   const path = resolve(

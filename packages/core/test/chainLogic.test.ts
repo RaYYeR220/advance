@@ -4,6 +4,7 @@ import type { ChainOps, RawSwapLog } from "../src/sources/chainOps.js";
 import {
   buildChainReader,
   isPoolEligibleForEscrow,
+  pickMajorityBeneficiary,
   BlockAtBeforeGenesisError,
 } from "../src/sources/chainLogic.js";
 
@@ -351,5 +352,40 @@ describe("tokenCreatedAt", () => {
     });
     const reader = buildChainReader(ops);
     await expect(reader.tokenCreatedAt(TOKEN)).rejects.toThrow(/no code/);
+  });
+});
+
+describe("pickMajorityBeneficiary", () => {
+  const A: Address = "0x1111111111111111111111111111111111111111";
+  const B: Address = "0x2222222222222222222222222222222222222222";
+
+  it("picks the beneficiary with > 50% shares", () => {
+    const picked = pickMajorityBeneficiary([
+      { beneficiary: A, shares: 50_000_000_000_000_000n }, // 5%
+      { beneficiary: B, shares: 950_000_000_000_000_000n }, // 95%
+    ]);
+    expect(picked).toBe(B);
+  });
+
+  it("returns undefined when no beneficiary holds a majority (e.g. an even 50/50 split)", () => {
+    const picked = pickMajorityBeneficiary([
+      { beneficiary: A, shares: 500_000_000_000_000_000n },
+      { beneficiary: B, shares: 500_000_000_000_000_000n },
+    ]);
+    expect(picked).toBeUndefined();
+  });
+
+  it("returns undefined for an empty list, never a fabricated address", () => {
+    expect(pickMajorityBeneficiary([])).toBeUndefined();
+  });
+
+  it("exactly 50% is not a majority (strict greater-than)", () => {
+    const picked = pickMajorityBeneficiary([{ beneficiary: A, shares: 500_000_000_000_000_000n }]);
+    expect(picked).toBeUndefined();
+  });
+
+  it("a single beneficiary holding 100% is the majority", () => {
+    const picked = pickMajorityBeneficiary([{ beneficiary: A, shares: 1_000_000_000_000_000_000n }]);
+    expect(picked).toBe(A);
   });
 });

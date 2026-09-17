@@ -303,6 +303,211 @@ describe("underwrite: hard-rule denies", () => {
   });
 });
 
+describe("underwrite: discovery guards (fixture mutations)", () => {
+  it("chain-id guard: reader reports 84532 while input.chainId is 8453 -> deny data_unavailable, LLM never called", async () => {
+    const ratspeakChain = loadFixture<ChainFixture>("ratspeak", "chain");
+    const wrongChainId: ChainFixture = {
+      ...ratspeakChain,
+      calls: { ...ratspeakChain.calls, chainId: 84532 },
+    };
+    const input = makeInput({ token: ratspeakChain.token as Address, now: ratspeakLatestTimestamp() });
+    let llmCalled = false;
+    const deps = makeDeps({
+      chain: createFixtureChainOps(wrongChainId),
+      llm: fakeLlm(async () => {
+        llmCalled = true;
+        return memoText();
+      }),
+    });
+
+    const decision = await underwrite(input, deps);
+    expect(decision.kind).toBe("deny");
+    if (decision.kind !== "deny") return;
+    expect(decision.reasons).toEqual(["data_unavailable"]);
+    expect(llmCalled).toBe(false);
+  });
+
+  it("Airlock's numeraire disagrees with Bankr's -> deny data_unavailable, both views in evidence.discovery", async () => {
+    const ratspeakChain = loadFixture<ChainFixture>("ratspeak", "chain");
+    const airlockKey = `${MAINNET_AIRLOCK}:${ratspeakChain.token}`.toLowerCase();
+    const original = ratspeakChain.calls.airlockAssetData[airlockKey]!;
+    const mutated: ChainFixture = {
+      ...ratspeakChain,
+      calls: {
+        ...ratspeakChain.calls,
+        airlockAssetData: {
+          ...ratspeakChain.calls.airlockAssetData,
+          [airlockKey]: { ...original, numeraire: "0x1234567890123456789012345678901234567890" },
+        },
+      },
+    };
+    const input = makeInput({ token: ratspeakChain.token as Address, now: ratspeakLatestTimestamp() });
+    const deps = makeDeps({ chain: createFixtureChainOps(mutated) });
+
+    const decision = await underwrite(input, deps);
+    expect(decision.kind).toBe("deny");
+    if (decision.kind !== "deny") return;
+    expect(decision.reasons).toEqual(["data_unavailable"]);
+    expect(decision.evidence.discovery?.bankr).toBeDefined();
+    expect(decision.evidence.discovery?.airlock).toBeDefined();
+  });
+
+  it(
+    "Bankr's poolId fails the independent on-chain binding check -> deny not_bankr_doppler " +
+      "(binding runs before the Bankr/Airlock agreement check, so a provably wrong poolId " +
+      "wins even though Airlock would otherwise 'disagree' with it — see resolveDiscovery)",
+    async () => {
+      const ratspeakChain = loadFixture<ChainFixture>("ratspeak", "chain");
+      const ratspeakBankr = loadFixture<BankrTokenFeesResponse>("ratspeak", "bankr");
+      const wrongPoolId = `0x${"1".repeat(64)}` as const;
+      const mutatedBankr: BankrTokenFeesResponse = {
+        ...ratspeakBankr,
+        tokens: [{ ...ratspeakBankr.tokens[0]!, poolId: wrongPoolId }],
+      };
+      const input = makeInput({ token: ratspeakChain.token as Address, now: ratspeakLatestTimestamp() });
+      const deps = makeDeps({
+        bankr: createFixtureBankrClient(mutatedBankr),
+        chain: createFixtureChainOps(ratspeakChain),
+      });
+
+      const decision = await underwrite(input, deps);
+      expect(decision.kind).toBe("deny");
+      if (decision.kind !== "deny") return;
+      expect(decision.reasons).toEqual(["not_bankr_doppler"]);
+      expect(decision.evidence.discovery?.bankr).toBeDefined();
+    },
+  );
+
+  it("Bankr finds a pool but Airlock doesn't (one-sided) -> deny data_unavailable", async () => {
+    const ratspeakChain = loadFixture<ChainFixture>("ratspeak", "chain");
+    const airlockKey = `${MAINNET_AIRLOCK}:${ratspeakChain.token}`.toLowerCase();
+    const mutated: ChainFixture = {
+      ...ratspeakChain,
+      calls: {
+        ...ratspeakChain.calls,
+        airlockAssetData: {
+          ...ratspeakChain.calls.airlockAssetData,
+          [airlockKey]: {
+            ...ratspeakChain.calls.airlockAssetData[airlockKey]!,
+            poolInitializer: "0x0000000000000000000000000000000000000000",
+          },
+        },
+      },
+    };
+    const input = makeInput({ token: ratspeakChain.token as Address, now: ratspeakLatestTimestamp() });
+    const deps = makeDeps({ chain: createFixtureChainOps(mutated) });
+
+    const decision = await underwrite(input, deps);
+    expect(decision.kind).toBe("deny");
+    if (decision.kind !== "deny") return;
+    expect(decision.reasons).toEqual(["data_unavailable"]);
+    expect(decision.evidence.discovery?.bankr).toBeDefined();
+    expect(decision.evidence.discovery?.airlock).toBeUndefined();
+  });
+
+  it("Airlock finds a pool but Bankr doesn't (one-sided) -> deny data_unavailable", async () => {
+    const ratspeakChain = loadFixture<ChainFixture>("ratspeak", "chain");
+    const ratspeakBankr = loadFixture<BankrTokenFeesResponse>("ratspeak", "bankr");
+    const emptyBankr: BankrTokenFeesResponse = { ...ratspeakBankr, tokens: [] };
+    const input = makeInput({ token: ratspeakChain.token as Address, now: ratspeakLatestTimestamp() });
+    const deps = makeDeps({
+      bankr: createFixtureBankrClient(emptyBankr),
+      chain: createFixtureChainOps(ratspeakChain),
+    });
+
+    const decision = await underwrite(input, deps);
+    expect(decision.kind).toBe("deny");
+    if (decision.kind !== "deny") return;
+    expect(decision.reasons).toEqual(["data_unavailable"]);
+    expect(decision.evidence.discovery?.bankr).toBeUndefined();
+    expect(decision.evidence.discovery?.airlock).toBeDefined();
+  });
+
+  it("both sources report the same unknown initializer -> deny not_bankr_doppler", async () => {
+    const ratspeakChain = loadFixture<ChainFixture>("ratspeak", "chain");
+    const ratspeakBankr = loadFixture<BankrTokenFeesResponse>("ratspeak", "bankr");
+    const UNKNOWN: Address = "0x9999999999999999999999999999999999999999";
+    const mutatedBankr: BankrTokenFeesResponse = {
+      ...ratspeakBankr,
+      tokens: [{ ...ratspeakBankr.tokens[0]!, initializer: UNKNOWN }],
+    };
+    const airlockKey = `${MAINNET_AIRLOCK}:${ratspeakChain.token}`.toLowerCase();
+    const mutatedChain: ChainFixture = {
+      ...ratspeakChain,
+      calls: {
+        ...ratspeakChain.calls,
+        airlockAssetData: {
+          ...ratspeakChain.calls.airlockAssetData,
+          [airlockKey]: { ...ratspeakChain.calls.airlockAssetData[airlockKey]!, poolInitializer: UNKNOWN },
+        },
+      },
+    };
+    const input = makeInput({ token: ratspeakChain.token as Address, now: ratspeakLatestTimestamp() });
+    const deps = makeDeps({
+      bankr: createFixtureBankrClient(mutatedBankr),
+      chain: createFixtureChainOps(mutatedChain),
+    });
+
+    const decision = await underwrite(input, deps);
+    expect(decision.kind).toBe("deny");
+    if (decision.kind !== "deny") return;
+    expect(decision.reasons).toEqual(["not_bankr_doppler"]);
+  });
+
+  it("Bankr claims an unknown feesManager while Airlock still resolves the real one -> deny not_bankr_doppler via the independent binding check", async () => {
+    const ratspeakChain = loadFixture<ChainFixture>("ratspeak", "chain");
+    const ratspeakBankr = loadFixture<BankrTokenFeesResponse>("ratspeak", "bankr");
+    const UNKNOWN: Address = "0x9999999999999999999999999999999999999999";
+    const mutatedBankr: BankrTokenFeesResponse = {
+      ...ratspeakBankr,
+      tokens: [{ ...ratspeakBankr.tokens[0]!, initializer: UNKNOWN }],
+    };
+    const input = makeInput({ token: ratspeakChain.token as Address, now: ratspeakLatestTimestamp() });
+    const deps = makeDeps({
+      bankr: createFixtureBankrClient(mutatedBankr),
+      chain: createFixtureChainOps(ratspeakChain),
+    });
+
+    const decision = await underwrite(input, deps);
+    expect(decision.kind).toBe("deny");
+    if (decision.kind !== "deny") return;
+    expect(decision.reasons).toEqual(["not_bankr_doppler"]);
+  });
+
+  it("Bankr's claimed creator isn't one of the pool's Lock beneficiaries -> deny data_unavailable, both views in evidence", async () => {
+    const ratspeakChain = loadFixture<ChainFixture>("ratspeak", "chain");
+    const ratspeakBankr = loadFixture<BankrTokenFeesResponse>("ratspeak", "bankr");
+    const NOT_A_BENEFICIARY: Address = "0x8888888888888888888888888888888888888888";
+    const mutatedBankr: BankrTokenFeesResponse = { ...ratspeakBankr, address: NOT_A_BENEFICIARY };
+    const input = makeInput({ token: ratspeakChain.token as Address, now: ratspeakLatestTimestamp() });
+    const deps = makeDeps({
+      bankr: createFixtureBankrClient(mutatedBankr),
+      chain: createFixtureChainOps(ratspeakChain),
+    });
+
+    const decision = await underwrite(input, deps);
+    expect(decision.kind).toBe("deny");
+    if (decision.kind !== "deny") return;
+    expect(decision.reasons).toEqual(["data_unavailable"]);
+    expect(decision.evidence.discovery?.bankr).toBeDefined();
+    expect(decision.evidence.discovery?.airlock).toBeDefined();
+  });
+
+  it("isEscrowed resolving true -> deny already_escrowed", async () => {
+    const ratspeakChain = loadFixture<ChainFixture>("ratspeak", "chain");
+    const input = makeInput({ token: ratspeakChain.token as Address, now: ratspeakLatestTimestamp() });
+    const deps = makeDeps({
+      chain: createFixtureChainOps(ratspeakChain),
+      isEscrowed: async () => true,
+    });
+
+    const decision = await underwrite(input, deps);
+    expect(decision.kind).toBe("deny");
+    if (decision.kind !== "deny") return;
+    expect(decision.reasons).toContain("already_escrowed");
+  });
+});
+
 describe("underwrite: memo outcomes", () => {
   it("LLM down -> deny memo_unavailable, terms were still computed (evidence carries the llm section)", async () => {
     const ratspeakChain = loadFixture<ChainFixture>("ratspeak", "chain");
@@ -476,6 +681,32 @@ describe("underwrite: input validation (InvalidUnderwriteInput, never a deny)", 
     });
     const decision = await underwrite(input, makeDeps());
     expect(decision.kind).toBe("approve");
+  });
+
+  it("chainId 8453 with env.network 'demo' throws InvalidUnderwriteInput (would sign a mainnet term sheet against the $10k demo ceiling)", async () => {
+    // Otherwise-valid input (real token, chain time in range) so the *only* possible
+    // rejection reason is the chainId/env.network binding itself, not clock skew or a
+    // token discovery miss.
+    const ratspeakChain = loadFixture<ChainFixture>("ratspeak", "chain");
+    const input = makeInput({
+      chainId: 8453,
+      token: ratspeakChain.token as Address,
+      now: ratspeakLatestTimestamp(),
+    });
+    const deps = makeDeps({ chain: createFixtureChainOps(ratspeakChain), env: { network: "demo" } });
+    await expect(underwrite(input, deps)).rejects.toThrow(InvalidUnderwriteInput);
+  });
+
+  it("chainId 84532 with env.network 'mainnet' throws InvalidUnderwriteInput", async () => {
+    const sepoliaChain = loadFixture<ChainFixture>("sepolia-test", "chain");
+    const latest = Math.max(...Object.values(sepoliaChain.calls.blocks).map(Number));
+    const input = makeInput({ chainId: 84532, token: sepoliaChain.token as Address, now: latest });
+    const deps = makeDeps({
+      bankr: unreachableBankr(),
+      chain: createFixtureChainOps(sepoliaChain),
+      env: { network: "mainnet" },
+    });
+    await expect(underwrite(input, deps)).rejects.toThrow(InvalidUnderwriteInput);
   });
 });
 
