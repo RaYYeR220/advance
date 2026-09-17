@@ -96,6 +96,31 @@ importers:
         specifier: ^3.2.0
         version: 3.2.7(@types/node@24.13.5)(tsx@4.23.13)
 
+  packages/sdk:
+    dependencies:
+      '@advance/core':
+        specifier: workspace:*
+        version: link:../core
+      viem:
+        specifier: ^2.56.6
+        version: 2.56.6(typescript@5.9.3)(zod@4.6.5)
+    devDependencies:
+      '@advance/underwriter':
+        specifier: workspace:*
+        version: link:../../apps/underwriter
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.5
+      tsx:
+        specifier: ^4.19.0
+        version: 4.23.13
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/node@24.13.5)(tsx@4.23.13)
+
 packages:
 
   '@adraffy/ens-normalize@1.11.1':
