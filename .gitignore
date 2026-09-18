@@ -28,3 +28,5 @@ coverage/
 # FileStore default path: JSON with encrypted key shares, never commit
 .data/
 >>>>>>> agents
+
+.env*
