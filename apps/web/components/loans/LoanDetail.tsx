@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { LoanStatus, LoanView } from "@advance/sdk";
+import type { Erc8004FeedbackView, LoanStatus, LoanView } from "@advance/sdk";
 import { RunningHead } from "@/components/editorial/Folio";
 import { Certificate } from "@/components/note/Certificate";
 import type { NoteTerms } from "@/lib/landing-data";
@@ -23,6 +23,7 @@ export interface LoanDetailProps {
   receipts: readonly CardReceipt[];
   refusalsByLayer: RefusalsByLayer;
   statusHistory: readonly StatusHistoryEntry[];
+  feedback: Erc8004FeedbackView | null;
 }
 
 const STATUS_COPY: Record<LoanStatus, string> = {
@@ -38,7 +39,7 @@ const STATUS_COPY: Record<LoanStatus, string> = {
 /** `/loans/[loanId]`: the revenue-note certificate, the escrow harvest timeline, the draw
  * meter, the card spend feed, every refusal by layer, ERC-8004 feedback and status history —
  * the whole enforcement record for one loan, in one place. */
-export function LoanDetail({ loan, chainId, noteTerms, drawMeter, harvests, receipts, refusalsByLayer, statusHistory }: LoanDetailProps) {
+export function LoanDetail({ loan, chainId, noteTerms, drawMeter, harvests, receipts, refusalsByLayer, statusHistory, feedback }: LoanDetailProps) {
   return (
     <section className={styles.page}>
       <header>
@@ -99,7 +100,7 @@ export function LoanDetail({ loan, chainId, noteTerms, drawMeter, harvests, rece
         <h2 className={styles.sectionTitle} id="feedback-title">
           ERC-8004 feedback
         </h2>
-        <Erc8004Feedback />
+        <Erc8004Feedback feedback={feedback} chainId={chainId} />
       </section>
 
       <section className={styles.section} aria-labelledby="history-title">

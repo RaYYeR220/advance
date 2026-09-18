@@ -1,5 +1,5 @@
 import { zeroAddress, type Address, type Hex } from "viem";
-import type { AuctionView, EvidenceBundle, LoanView, ScoreResult, TermSheet } from "@advance/sdk";
+import type { AuctionView, Erc8004FeedbackView, EvidenceBundle, LoanView, ScoreResult, TermSheet } from "@advance/sdk";
 import type { AgentEvent, EventsSource, HarvestedEvent, LoanActivatedEvent, LoanOpenedEvent, LoanRepaidEvent, OnChainEvent } from "../events";
 import { filterEvents, mergeAndPaginate } from "../events";
 import type { DataClient } from "../data";
@@ -21,6 +21,7 @@ export const FIXTURE_BLOCK_NUMBER = 20_000_500n;
 
 const FEES_MANAGER: Address = "0xfeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 const USDC: Address = "0xc9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9";
+const REPUTATION_REGISTRY: Address = "0x8004B663056A597Dffe9eCcC1965A193B7388713";
 
 // Loan A — loanId 1, a live auction that hasn't graduated yet.
 const AGENT_A: Address = "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
@@ -410,6 +411,25 @@ function buildOffChainEvents(now: number): AgentEvent[] {
   ];
 }
 
+// Loan C (agentId 3n) repaid in full — the one fixture agent with real posted feedback, mirroring
+// the protocol's repaid path (`+100 / "advance" / "repaid"`) so the e2e suite can assert the
+// feedback section renders a real record, not just its honest empty state.
+const FEEDBACK_BY_AGENT_ID = new Map<bigint, Erc8004FeedbackView>([
+  [
+    3n,
+    {
+      agentId: 3n,
+      index: 1n,
+      value: 100n,
+      valueDecimals: 0,
+      tag1: "advance",
+      tag2: "repaid",
+      isRevoked: false,
+      registry: REPUTATION_REGISTRY,
+    },
+  ],
+]);
+
 const FIXTURE_SCORE: ScoreResult = {
   kind: "deny",
   token: zeroAddress,
@@ -446,6 +466,9 @@ export function buildFixtureDataClient(): DataClient {
     },
     async evidence() {
       return FIXTURE_EVIDENCE;
+    },
+    async feedback(agentId) {
+      return FEEDBACK_BY_AGENT_ID.get(agentId) ?? null;
     },
   };
 }

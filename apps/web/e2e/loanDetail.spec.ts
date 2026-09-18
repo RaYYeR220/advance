@@ -71,6 +71,18 @@ test.describe("/loans/[loanId] — repaid loan, nothing ever refused", () => {
     await expect(emptyLayers).toHaveCount(4);
   });
 
+  test("renders the real posted ERC-8004 feedback instead of the empty state", async ({ page }) => {
+    await page.goto("/loans/3");
+    await expect(page.getByRole("heading", { level: 2, name: "ERC-8004 feedback" })).toBeVisible();
+    await expect(page.getByText("No feedback posted yet.")).not.toBeVisible();
+    await expect(page.getByText("+100", { exact: true })).toBeVisible();
+    await expect(page.getByText(/repaid in full — tags advance \/ repaid, agent #3/)).toBeVisible();
+    await expect(page.getByRole("link", { name: "view registry" })).toHaveAttribute(
+      "href",
+      "https://sepolia.basescan.org/address/0x8004b663056a597dffe9eccc1965a193b7388713",
+    );
+  });
+
   test("captures a full-page screenshot", async ({ page }, info) => {
     await page.goto("/loans/3");
     await page.waitForTimeout(200);

@@ -4,6 +4,7 @@ import { fetchEvidence, fetchQuote, fetchScore, type ApiClientOptions } from "./
 import {
   encodeMoveBeneficiaryTx,
   encodeOpenLoanTx,
+  readAgentFeedback,
   readAuction,
   readLoan,
   readLoans,
@@ -18,6 +19,7 @@ import type {
   ApproveDecision,
   AuctionView,
   Decision,
+  Erc8004FeedbackView,
   EvidenceBundle,
   LoanStatus,
   LoanView,
@@ -123,6 +125,12 @@ export class AdvanceClient {
   /** A loan's CCA note auction: clearing price, currency raised so far, blocks left, graduated. */
   async auction(loanId: bigint): Promise<AuctionView> {
     return readAuction(this.chainContext, loanId);
+  }
+
+  /** The most recent ERC-8004 feedback the hub has posted for `agentId` (client = the hub) —
+   * `null` if it never carried an agent id or the registry has nothing posted yet. */
+  async feedback(agentId: bigint): Promise<Erc8004FeedbackView | null> {
+    return readAgentFeedback(this.chainContext, agentId);
   }
 
   /** Bids `notes` notes up to `maxPriceCents` on `loanId`'s auction: `USDC.approve(Permit2)`,

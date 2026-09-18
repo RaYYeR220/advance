@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Address, Hex } from "viem";
-import type { AuctionView, EvidenceBundle, LoanStatus, LoanView, ScoreResult, TermSheet } from "@advance/sdk";
+import type { AuctionView, Erc8004FeedbackView, EvidenceBundle, LoanStatus, LoanView, ScoreResult, TermSheet } from "@advance/sdk";
 import {
   getAuction,
   getAuctions,
@@ -11,6 +11,7 @@ import {
   getLoan,
   getLoanActivity,
   getLoanEvidence,
+  getLoanFeedback,
   getLoans,
   getRecentEvents,
   getScore,
@@ -124,6 +125,20 @@ function harvested(overrides: Partial<HarvestedEvent> & { timestamp: number; log
   };
 }
 
+function fakeFeedback(overrides: Partial<Erc8004FeedbackView> = {}): Erc8004FeedbackView {
+  return {
+    agentId: 9300n,
+    index: 1n,
+    value: -100n,
+    valueDecimals: 0,
+    tag1: "advance",
+    tag2: "default",
+    isRevoked: false,
+    registry: "0x8004B663056A597Dffe9eCcC1965A193B7388713" as Address,
+    ...overrides,
+  };
+}
+
 function fakeClient(overrides: Partial<DataClient> = {}): DataClient {
   return {
     loans: vi.fn(async () => []),
@@ -131,6 +146,7 @@ function fakeClient(overrides: Partial<DataClient> = {}): DataClient {
     auction: vi.fn(async () => fakeAuction()),
     score: vi.fn(async () => ({ kind: "eligible" }) as unknown as ScoreResult),
     evidence: vi.fn(async () => fakeEvidence()),
+    feedback: vi.fn(async () => null),
     ...overrides,
   };
 }
@@ -219,6 +235,43 @@ describe("getLoans / getLoan / getAuction / getScore / getLoanEvidence", () => {
     });
     const evidence = await getLoanEvidence(fakeLoan(), deps({ client }));
     expect(evidence).toBeUndefined();
+  });
+});
+
+describe("getLoanFeedback", () => {
+  it("returns the real ERC-8004 feedback when the registry has posted one", async () => {
+    const loan = fakeLoan({ termSheet: fakeTermSheet({ agentId: 9300n }) });
+    const feedback = fakeFeedback();
+    const client = fakeClient({ feedback: vi.fn(async (agentId: bigint) => (agentId === 9300n ? feedback : null)) });
+
+    const result = await getLoanFeedback(loan, deps({ client }));
+
+    expect(client.feedback).toHaveBeenCalledWith(9300n);
+    expect(result).toEqual(feedback);
+    expect(result?.value).toBe(-100n);
+    expect(result?.tag1).toBe("advance");
+    expect(result?.tag2).toBe("default");
+  });
+
+  it("returns null (an honest empty state), not a fabricated entry, when nothing has posted yet", async () => {
+    const loan = fakeLoan({ termSheet: fakeTermSheet({ agentId: 9297n }) });
+    const client = fakeClient({ feedback: vi.fn(async () => null) });
+
+    const result = await getLoanFeedback(loan, deps({ client }));
+
+    expect(client.feedback).toHaveBeenCalledWith(9297n);
+    expect(result).toBeNull();
+  });
+
+  it("caches by agent id across calls within the TTL", async () => {
+    const loan = fakeLoan({ termSheet: fakeTermSheet({ agentId: 9300n }) });
+    const client = fakeClient({ feedback: vi.fn(async () => fakeFeedback()) });
+    const d = deps({ client });
+
+    await getLoanFeedback(loan, d);
+    await getLoanFeedback(loan, d);
+
+    expect(client.feedback).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -30,6 +30,23 @@ export function loanStatusFromIndex(index: number): LoanStatus {
   return status;
 }
 
+/** One ERC-8004 reputation-registry entry, read for a loan's agent id against the hub as
+ * `client`. `value`/`valueDecimals` mirror the registry's own encoding (e.g. `value: -100,
+ * valueDecimals: 0` for a default; `+100` for a repaid loan) — never reinterpreted here. */
+export interface Erc8004FeedbackView {
+  agentId: bigint;
+  /** 1-based index into the registry's feedback list for this `(agentId, hub)` pair — the
+   * value `readFeedback`'s `idx` argument took. */
+  index: bigint;
+  value: bigint;
+  valueDecimals: number;
+  tag1: string;
+  tag2: string;
+  isRevoked: boolean;
+  /** The reputation registry contract this was read from. */
+  registry: Address;
+}
+
 /** An unsigned transaction the caller signs and sends with their own wallet — the SDK never
  * holds keys, so this is as far as `prepareApplication` goes. */
 export interface TxRequest {

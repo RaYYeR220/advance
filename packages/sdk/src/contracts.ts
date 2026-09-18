@@ -1,5 +1,5 @@
 import { encodeFunctionData, type Account, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
-import { ZERO_ADDRESS, type TermSheet } from "@advance/core";
+import { reputationRegistryAbi, ZERO_ADDRESS, type TermSheet } from "@advance/core";
 import {
   advanceHubAbi,
   agentCardAbi,
@@ -11,7 +11,15 @@ import {
   revenueEscrowAbi,
   revenueNoteAbi,
 } from "./abis/index.js";
-import { loanStatusFromIndex, type ApproveDecision, type AuctionView, type LoanStatus, type LoanView, type TxRequest } from "./types.js";
+import {
+  loanStatusFromIndex,
+  type ApproveDecision,
+  type AuctionView,
+  type Erc8004FeedbackView,
+  type LoanStatus,
+  type LoanView,
+  type TxRequest,
+} from "./types.js";
 
 /** Everything a read/write in this module needs to talk to one `AdvanceHub` deployment. */
 export interface ChainContext {
@@ -241,6 +249,37 @@ export async function readAuction(ctx: ChainContext, loanId: bigint): Promise<Au
     requiredCurrencyRaised: raw.ts.minPrincipal,
     raisedSoFar,
   };
+}
+
+/**
+ * The most recent ERC-8004 reputation-registry entry the hub has posted for `agentId` (client =
+ * the hub itself, the same address every `postFeedback` call on the agent/repayment path uses).
+ * `null` when the term sheet never carried an agent id (`agentId === 0n`, reputation skipped by
+ * design) or the registry has nothing posted yet for this pair (`getLastIndex` returns `0` —
+ * `readFeedback`'s `idx` is 1-based and reverts on `0`). Reads the registry address off the
+ * hub's own `config()` rather than a hardcoded chain-id branch, so it's correct on mainnet and
+ * Sepolia alike.
+ */
+export async function readAgentFeedback(ctx: ChainContext, agentId: bigint): Promise<Erc8004FeedbackView | null> {
+  if (agentId === 0n) return null;
+
+  const { reputationRegistry } = await readHubConfig(ctx);
+  const lastIndex = (await ctx.publicClient.readContract({
+    address: reputationRegistry,
+    abi: reputationRegistryAbi,
+    functionName: "getLastIndex",
+    args: [agentId, ctx.hub],
+  })) as bigint;
+  if (lastIndex === 0n) return null;
+
+  const [value, valueDecimals, tag1, tag2, isRevoked] = (await ctx.publicClient.readContract({
+    address: reputationRegistry,
+    abi: reputationRegistryAbi,
+    functionName: "readFeedback",
+    args: [agentId, ctx.hub, lastIndex],
+  })) as [bigint, number, string, string, boolean];
+
+  return { agentId, index: lastIndex, value, valueDecimals, tag1, tag2, isRevoked, registry: reputationRegistry };
 }
 
 /** The calldata `openLoan` sends — encoded here so `prepareApplication` can hand it to a caller

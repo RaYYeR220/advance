@@ -4,7 +4,7 @@ import { Masthead } from "@/components/editorial/Masthead";
 import { LoanDetail } from "@/components/loans/LoanDetail";
 import { InvalidLoanId, LoanError, LoanNotFound } from "@/components/loans/LoanEmptyStates";
 import { clearingPriceCents } from "@/lib/auctions";
-import { getAuction, getLatestBlock, getLoan, getLoanActivity } from "@/lib/data";
+import { getAuction, getLatestBlock, getLoan, getLoanActivity, getLoanFeedback } from "@/lib/data";
 import { loadWebEnv } from "@/lib/env";
 import {
   cardReceiptsFromEvents,
@@ -55,7 +55,12 @@ async function renderLoan(loanId: bigint, rawLoanId: string) {
     const loan = await getLoan(loanId);
     if (!loan) return <LoanNotFound loanId={rawLoanId} />;
 
-    const [auction, activity, latestBlock] = await Promise.all([getAuction(loanId), getLoanActivity(loanId), getLatestBlock()]);
+    const [auction, activity, latestBlock, feedback] = await Promise.all([
+      getAuction(loanId),
+      getLoanActivity(loanId),
+      getLatestBlock(),
+      getLoanFeedback(loan),
+    ]);
     const webEnv = loadWebEnv();
 
     const harvests = harvestEntriesFromEvents(loan, activity.events);
@@ -83,6 +88,7 @@ async function renderLoan(loanId: bigint, rawLoanId: string) {
         receipts={receipts}
         refusalsByLayer={refusalsByLayer}
         statusHistory={statusHistory}
+        feedback={feedback}
       />
     );
   } catch {

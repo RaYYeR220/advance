@@ -5,6 +5,7 @@ import {
   q96ToCents,
   TICK_SPACING_Q96,
   type AuctionView,
+  type Erc8004FeedbackView,
   type EvidenceBundle,
   type LoanStatus,
   type LoanView,
@@ -38,7 +39,7 @@ import type { LandingData } from "./landing-data";
 /** The subset of `AdvanceClient` this module reads from — small enough that tests fake it
  * directly (`{ loans, loan, auction, score, evidence }`) rather than constructing a real viem
  * `PublicClient`. A real `AdvanceClient` instance satisfies this as-is. */
-export type DataClient = Pick<AdvanceClient, "loans" | "loan" | "auction" | "score" | "evidence">;
+export type DataClient = Pick<AdvanceClient, "loans" | "loan" | "auction" | "score" | "evidence" | "feedback">;
 
 export interface DataDeps {
   client?: DataClient;
@@ -131,6 +132,7 @@ const AUCTION_TTL_MS = 10_000;
 const AUCTIONS_TTL_MS = 10_000;
 const SCORE_TTL_MS = 60_000;
 const EVIDENCE_TTL_MS = 5 * 60_000;
+const FEEDBACK_TTL_MS = 30_000;
 const ECONOMY_TTL_MS = 30_000;
 const LANDING_TTL_MS = 30_000;
 const LOAN_ACTIVITY_TTL_MS = 15_000;
@@ -219,6 +221,14 @@ export async function getLoanEvidence(loan: LoanView, deps?: DataDeps): Promise<
   } catch {
     return undefined;
   }
+}
+
+/** The most recent ERC-8004 reputation feedback Advance has posted for this loan's agent —
+ * `null` when the term sheet never carried an agent id (`agentId === 0n`) or the registry has
+ * nothing posted yet, never a fabricated entry standing in for "we don't know". */
+export async function getLoanFeedback(loan: LoanView, deps?: DataDeps): Promise<Erc8004FeedbackView | null> {
+  const client = resolveClient(deps);
+  return cache.get(`feedback:${loan.termSheet.agentId}`, FEEDBACK_TTL_MS, () => client.feedback(loan.termSheet.agentId));
 }
 
 // ---------------------------------------------------------------------------------------------

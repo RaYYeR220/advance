@@ -7,6 +7,7 @@ export * from "./abis/revenueNote.js";
 export * from "./abis/permit2.js";
 export * from "./abis/cca.js";
 export * from "./abis/identityRegistry.js";
+export * from "./abis/reputationRegistry.js";
 export * from "./abis/feesManager.js";
 export * from "./termsheet.js";
 export * from "./llm.js";
