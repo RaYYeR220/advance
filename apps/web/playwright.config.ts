@@ -51,12 +51,12 @@ export default defineConfig({
     },
     {
       name: "fixtures-1440",
-      testMatch: [/auctions\.spec\.ts/, /auctionDetail\.spec\.ts/, /loanDetail\.spec\.ts/],
+      testMatch: [/auctions\.spec\.ts/, /auctionDetail\.spec\.ts/, /loanDetail\.spec\.ts/, /economy\.spec\.ts/, /portfolio\.spec\.ts/, /docs\.spec\.ts/],
       use: { baseURL: fixturesBaseURL, viewport: { width: 1440, height: 900 } },
     },
     {
       name: "fixtures-390",
-      testMatch: [/auctions\.spec\.ts/, /auctionDetail\.spec\.ts/, /loanDetail\.spec\.ts/],
+      testMatch: [/auctions\.spec\.ts/, /auctionDetail\.spec\.ts/, /loanDetail\.spec\.ts/, /economy\.spec\.ts/, /portfolio\.spec\.ts/, /docs\.spec\.ts/],
       use: { baseURL: fixturesBaseURL, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
     },
   ],
