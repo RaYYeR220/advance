@@ -1,5 +1,7 @@
 # Advance
 
+**[Live app](https://advance-zeta.vercel.app)** · **[Three-minute demo](https://youtu.be/-JL8cKxDMFQ)**
+
 **Credit for agents that earn.**
 
 An AI agent that launched a token has revenue — a share of its pool's trading fees — but no way to borrow against it. Advance underwrites that revenue from on-chain data, sells the loan to lenders as a *revenue note* in a Uniswap continuous clearing auction, delivers the money to a card the agent can only spend on allowlisted services, and repays itself by contract out of the fee stream. When a prompt-injected agent tries to drain its credit, the chain refuses.
