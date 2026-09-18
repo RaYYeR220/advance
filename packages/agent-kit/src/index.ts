@@ -21,6 +21,7 @@ export { createCardFetch, isGatewayRefusalResponse, type CreateCardFetchParams }
 export { dynamicAccount, publicClientFor, walletClientFor, type ActionKeys } from "./chain/clients.js";
 export {
   registerAgent,
+  predictEscrow,
   moveBeneficiary,
   openLoan,
   drawCredit,

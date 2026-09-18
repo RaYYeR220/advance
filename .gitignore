@@ -5,7 +5,12 @@ node_modules/
 !.env.example
 out/
 cache/
-broadcast/*/31337/
+**/broadcast/*/31337/
+# Fork-test deploy scripts broadcast under the forked chain's real id (8453 Base, 84532 Base
+# Sepolia), never anvil's own 31337 - these runs are scratch output, never committed. Matched at
+# any depth (`**/`), not just the repo root, since Foundry projects live under `contracts/`.
+**/broadcast/*/8453/
+**/broadcast/*/84532/
 .next/
 dist/
 coverage/
