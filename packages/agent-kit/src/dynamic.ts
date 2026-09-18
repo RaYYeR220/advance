@@ -103,8 +103,8 @@ export class DynamicKeys {
  * instead of `./src/index.js`), which `moduleResolution: "NodeNext"` cannot
  * resolve - `import type { DynamicEvmWalletClient } from "..."` fails with
  * "has no exported member" even though the class exists and works fine at
- * runtime (verified against the live API - see task-1-report.md). Tracked as
- * an upstream packaging bug, not a design choice.
+ * runtime (verified against the live API). Tracked as an upstream packaging
+ * bug, not a design choice.
  */
 interface LiveSdkClient {
   authenticateApiToken(token: string): Promise<unknown>;

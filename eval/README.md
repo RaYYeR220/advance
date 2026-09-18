@@ -33,8 +33,8 @@ payload asking to loosen terms, a non-JSON response, and a timeout-shaped reject
 set, and (for approvals) a `[minCap,maxCap]` micro-USD band plus the pre-memo formula
 cap/floor/drawLimit. It's built by `pnpm --filter @advance/eval run derive-key`, which runs
 `src/deriveKey.ts` against `src/independentFormula.ts` — a from-scratch reimplementation of
-the "Binding formulas" spec (Task 3 of `internal/plans/02-underwriting.md`) that never
-imports `@advance/core`'s `underwrite/{terms,quality,rules}.ts`. `answer-key.derivation.md`
+the "Binding formulas" spec that never imports `@advance/core`'s
+`underwrite/{terms,quality,rules}.ts`. `answer-key.derivation.md`
 documents the arithmetic (r1/r7/r30, decay, haircut steps, rawCap, cap, floor, draw terms)
 for every scenario. `run.ts` is the only file that reads `answer-key.json`; it never imports
 `deriveKey.ts` or `independentFormula.ts`.

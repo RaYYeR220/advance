@@ -6,7 +6,7 @@
  * hand-maintained call list drifting out of sync with `runStage1`.
  *
  * Usage (from `packages/core`):
- *   node --env-file=../../../internal/.env scripts/record-fixture.ts <token> [slug] [--chain=8453|84532]
+ *   node --env-file=<path to your local .env> scripts/record-fixture.ts <token> [slug] [--chain=8453|84532]
  *
  * `BASE_RPC_URL`/`BASE_SEPOLIA_RPC_URL` must be set in the environment (an archive-capable
  * RPC, e.g. Alchemy) — `--env-file` is the recommended way to supply it without ever

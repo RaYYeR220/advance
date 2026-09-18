@@ -13,7 +13,7 @@ import { baseSepolia } from "viem/chains";
 
 /**
  * USDC (FiatTokenV2_2) balanceAndBlacklistStates mapping slot. Verified against
- * both Base mainnet USDC (used by the reference x402 spike) and Base Sepolia
+ * both Base mainnet USDC (used by the reference x402 prototype) and Base Sepolia
  * USDC (0x036CbD53842c5426634e7929541eC2318f3dCF7e) by writing to it on a live
  * anvil fork and reading back balanceOf.
  */

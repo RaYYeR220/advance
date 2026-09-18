@@ -10,7 +10,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const contractsDir = resolve(here, "../../../../contracts");
 
 /** Real Base mainnet addresses the deployed hub and the fork test's actions are wired against -
- * see `internal/spikes/cca-8004-oracle-swap` for how each was found/verified live on-chain. */
+ * each was found and verified live on-chain before being pinned here. */
 export const BASE_MAINNET = {
   usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as Address,
   weth: "0x4200000000000000000000000000000000000006" as Address,
@@ -50,8 +50,8 @@ interface ForgeBroadcastTransaction {
 /**
  * Starts an anvil fork of Base mainnet and deploys `EscrowDeployer`, `LoanDeployer` and
  * `AdvanceHub` onto it by running `forge script script/DeployHub.s.sol` against the fork's RPC -
- * exactly as the brief requires, not a direct `viem.deployContract` of the hub. Addresses are read
- * back from the script's broadcast artifact (`broadcast/DeployHub.s.sol/<chainId>/run-latest.json`).
+ * the same path a real deploy takes, not a direct `viem.deployContract` of the hub. Addresses are
+ * read back from the script's broadcast artifact (`broadcast/DeployHub.s.sol/<chainId>/run-latest.json`).
  */
 export async function deployHubOnFork(params: {
   forkUrl: string;

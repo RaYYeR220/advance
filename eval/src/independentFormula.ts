@@ -1,6 +1,5 @@
 /**
- * A from-scratch reimplementation of the "Binding formulas" spec (Task 3 of
- * `internal/plans/02-underwriting.md`, amended). Deliberately does NOT import
+ * A from-scratch reimplementation of the "Binding formulas" spec. Deliberately does NOT import
  * `@advance/core`'s `underwrite/{terms,quality,rules}.ts` — this is the independent
  * ground truth `deriveKey.ts` uses to build `answer-key.json`, so a shared bug between
  * this file and the engine's own formula code isn't possible by construction (a copy of

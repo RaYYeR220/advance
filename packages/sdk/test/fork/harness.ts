@@ -5,8 +5,10 @@
  * is real, at its canonical address, which is exactly why this forks Base rather than running a
  * bare local chain.
  *
- * `BASE_RPC_URL` is read directly from `internal/.env` and is never logged, thrown in an error
- * message, or otherwise surfaced — only ever handed to the `anvil` child process's environment.
+ * `BASE_RPC_URL` must be set in the environment (an archive-capable RPC, e.g. a paid provider —
+ * the public default rejects archive `eth_call`s at old blocks). It is never logged, thrown in an
+ * error message, or otherwise surfaced — only ever handed to the `anvil` child process's
+ * environment.
  */
 import { type ChildProcessByStdio, execFile, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
@@ -30,7 +32,6 @@ import { privateKeyToAccount } from "viem/accounts";
 const here = dirname(fileURLToPath(import.meta.url));
 const CONTRACTS_DIR = resolve(here, "../../../../contracts");
 const FIXTURE_OUT_PATH = resolve(CONTRACTS_DIR, "script/sdk/out/fixture.json");
-const INTERNAL_ENV_PATH = "C:/Users/egori/Desktop/projects/runtime-agent-week/internal/.env";
 
 /** Matches `contracts/foundry.toml`'s `[profile.fork]` — reusing the same pinned block keeps the
  * fork's underlying RPC responses cacheable/consistent with the rest of this repo's fork tests. */
@@ -59,14 +60,9 @@ function redactUrl(message: string): string {
 }
 
 function readBaseRpcUrl(): string {
-  const text = readFileSync(INTERNAL_ENV_PATH, "utf8");
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line.startsWith("BASE_RPC_URL=")) continue;
-    const value = line.slice("BASE_RPC_URL=".length).trim().replace(/^["']|["']$/g, "");
-    if (value.length > 0) return value;
-  }
-  throw new Error("BASE_RPC_URL is not set in internal/.env — required for the anvil-fork suite");
+  const value = process.env.BASE_RPC_URL;
+  if (value && value.length > 0) return value;
+  throw new Error("BASE_RPC_URL is not set in the environment — required for the anvil-fork suite");
 }
 
 export interface AnvilAccount {

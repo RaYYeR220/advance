@@ -10,9 +10,9 @@ import type { Network, SupportedResponse } from "@x402/core/types";
  * A real x402 facilitator (verify + on-chain settle) running in-process
  * against an anvil fork, wrapped as a FacilitatorClient so the Hono resource
  * server can call it directly without any HTTP hop. This is the same
- * reference-facilitator pattern used by the card1271-x402 spike
- * (internal/spikes/card1271-x402/e2e.mjs), adapted to the FacilitatorClient
- * interface `@x402/hono`'s x402ResourceServer expects.
+ * reference-facilitator pattern used by the earlier card1271-x402 prototype,
+ * adapted to the FacilitatorClient interface `@x402/hono`'s x402ResourceServer
+ * expects.
  */
 export function createInProcessFacilitator(params: {
   rpcUrl: string;

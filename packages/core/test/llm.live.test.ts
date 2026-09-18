@@ -1,5 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createLlmClient } from "../src/llm.js";
 import { requestMemo, type MemoEvidenceSummary } from "../src/underwrite/memo.js";
@@ -9,38 +7,24 @@ import { requestMemo, type MemoEvidenceSummary } from "../src/underwrite/memo.js
  * other test in this package uses a fake `fetch`/`LlmClient`; this is the one place that
  * touches the network, and it's opt-in so `pnpm test` stays hermetic by default.
  *
- * Reads `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL` from `internal/.env` (outside this
- * public repo) rather than requiring them to already be in `process.env`, since that file
- * is the one place they're expected to live. The key is read only to set the request
- * header; it is never logged.
+ * Reads `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL` from the environment — export them yourself,
+ * or run with `node --env-file=<your local .env>` (never commit that file). The key is read
+ * only to set the request header; it is never logged.
  */
 const LIVE_LLM = process.env.LIVE_LLM === "1";
-
-const ENV_PATH = resolve(import.meta.dirname, "../../../../../../internal/.env");
-
-function loadEnvFile(path: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!existsSync(path)) return out;
-  for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
-    const match = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
-    if (match) out[match[1]!] = match[2]!;
-  }
-  return out;
-}
 
 describe.skipIf(!LIVE_LLM)("llm client: live smoke (Venice)", () => {
   it(
     "requestMemo against the real endpoint returns a schema-valid memo, or a clean memo_unavailable",
     async () => {
-      const fileEnv = loadEnvFile(ENV_PATH);
-      const baseUrl = process.env.LLM_BASE_URL ?? fileEnv.LLM_BASE_URL;
-      const apiKey = process.env.LLM_API_KEY ?? fileEnv.LLM_API_KEY;
+      const baseUrl = process.env.LLM_BASE_URL;
+      const apiKey = process.env.LLM_API_KEY;
       // Falls back to a small, fast, non-reasoning Venice model if LLM_MODEL isn't set —
       // cheap, low latency, and confirmed to honor response_format: json_object.
-      const model = process.env.LLM_MODEL ?? fileEnv.LLM_MODEL ?? "mistral-small-3-2-24b-instruct";
+      const model = process.env.LLM_MODEL ?? "mistral-small-3-2-24b-instruct";
 
       if (!baseUrl) {
-        throw new Error("LIVE_LLM=1 requires LLM_BASE_URL (internal/.env or the environment)");
+        throw new Error("LIVE_LLM=1 requires LLM_BASE_URL to be set in the environment");
       }
 
       const llm = createLlmClient({ baseUrl, apiKey, model });

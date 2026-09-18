@@ -47,7 +47,7 @@ import { FileStore } from "../../src/store.js";
 import { BASE_MAINNET, deployHubOnFork, loadArtifact, type HubFork } from "../helpers/hub-fork.js";
 
 // This suite forks live Base mainnet and shells out to `forge script`, so it only runs with
-// BASE_RPC_URL set (see internal/.env, never printed/committed) - unset, it self-skips like every
+// BASE_RPC_URL set (a local, never-committed env value) - unset, it self-skips like every
 // other fork suite in this repo.
 const BASE_RPC_URL = process.env.BASE_RPC_URL;
 const describeIfFork = BASE_RPC_URL ? describe : describe.skip;
@@ -64,7 +64,7 @@ const AUCTION_BLOCKS = 100n;
 const DRAW_LIMIT = 2_500_000n;
 const DRAW_PERIOD = 86_400n;
 const GRACE_PERIOD = 60n; // short, so the fork test can warp past it quickly
-const BID_A_AMOUNT = 2_000_000n; // matches the undersubscribed-at-floor CCA fork spike exactly
+const BID_A_AMOUNT = 2_000_000n; // matches the undersubscribed-at-floor CCA fork scenario exactly
 const BID_B_AMOUNT = 1_200_000n;
 const DRAW_AMOUNT = 2_000_000n;
 const DRAW_AMOUNT_LOAN_2 = 1_000_000n; // leaves the rest of loan 2's principal in the credit line for `freeze` to distribute
@@ -185,7 +185,7 @@ describeIfFork("chain/actions (anvil fork of Base mainnet + forge-deployed Advan
 
   /** Test scaffolding only: a plain viem wallet client for `account`, used for the handful of
    * on-chain steps outside `chain/actions.ts`'s scope (deploying the AgentCard; a lender
-   * exiting/claiming its CCA-won notes, which the brief's action set does not wrap). */
+   * exiting/claiming its CCA-won notes, which the typed action set does not wrap). */
   function rawWalletClient(account: PrivateKeyAccount) {
     return createWalletClient({ account, chain: base, transport: http(hubFork.fork.rpcUrl) });
   }

@@ -22,8 +22,8 @@ export type ActionKeys = Pick<DynamicKeys, "address" | "signTransaction">;
 
 /**
  * Builds a viem {@link LocalAccount} for `label` whose `signTransaction` delegates to
- * `keys.signTransaction(label, tx)` - a custom viem `toAccount`, per plan-03's requirement that
- * the wallet client sign through `DynamicKeys` (or, in tests, an equivalent wrapping a local
+ * `keys.signTransaction(label, tx)` - a custom viem `toAccount`, so the wallet client always
+ * signs through `DynamicKeys` (or, in tests, an equivalent wrapping a local
  * private key; see `fakeKeysFor` in the fork test). `signMessage`/`signTypedData` are required by
  * viem's `CustomSource` shape but never called by anything in `chain/actions.ts` - every action
  * here sends a plain transaction - so they throw rather than silently doing the wrong thing.
