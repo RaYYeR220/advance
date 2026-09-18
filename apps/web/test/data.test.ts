@@ -12,6 +12,7 @@ import {
   getLoanActivity,
   getLoanEvidence,
   getLoans,
+  getRecentEvents,
   getScore,
   resetDataLayerForTests,
   underwriterApiBase,
@@ -295,6 +296,7 @@ describe("getEconomy", () => {
 
     // now (1_700_100_000) - lastRevenueAt (1_700_000_000) = 100_000; gracePeriod 100_000 -> 0 left.
     expect(activeRow?.runwaySeconds).toBe(0n);
+    expect(activeRow?.gracePeriodSeconds).toBe(100_000n);
     expect(repaidRow?.runwaySeconds).toBeNull();
   });
 
@@ -304,6 +306,18 @@ describe("getEconomy", () => {
     await getEconomy(d);
     await getEconomy(d);
     expect(client.loans).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("getRecentEvents", () => {
+  it("passes the limit through to the events source and caches across calls within the TTL", async () => {
+    const events = fakeEvents([harvested({ timestamp: 1, logIndex: 1 })]);
+    const d = deps({ client: fakeClient(), events });
+    const page = await getRecentEvents(5, d);
+    expect(page.events).toHaveLength(1);
+    await getRecentEvents(5, d);
+    expect(events.list).toHaveBeenCalledTimes(1);
+    expect(events.list).toHaveBeenCalledWith({ limit: 5 });
   });
 });
 

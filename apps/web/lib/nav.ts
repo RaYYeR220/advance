@@ -6,9 +6,9 @@ import type { MastheadLink } from "@/components/editorial/Masthead";
 export const NAV: readonly MastheadLink[] = [
   { label: "Underwrite", href: "/underwrite" },
   { label: "Auctions", href: "/auctions" },
-  { label: "Economy", href: "/#economy" },
-  { label: "Portfolio", href: "/#portfolio", optional: true },
-  { label: "Docs", href: "/#docs" },
+  { label: "Economy", href: "/economy" },
+  { label: "Portfolio", href: "/portfolio", optional: true },
+  { label: "Docs", href: "/docs" },
 ];
 
 /** Footer index, shared by every top-level page. */
@@ -19,17 +19,17 @@ export const FOOTER: readonly BackCoverColumn[] = [
       { label: "Underwrite", href: "/underwrite" },
       { label: "Auctions", href: "/auctions" },
       { label: "Loans", href: "/#how" },
-      { label: "Economy", href: "/#economy" },
-      { label: "Portfolio", href: "/#portfolio" },
+      { label: "Economy", href: "/economy" },
+      { label: "Portfolio", href: "/portfolio" },
     ],
   },
   {
     title: "Docs",
     links: [
-      { label: "SDK", href: "/#docs" },
-      { label: "MCP server", href: "/#docs" },
-      { label: "Agent skill", href: "/#docs" },
-      { label: "Contracts", href: "/#docs" },
+      { label: "SDK", href: "/docs#sdk" },
+      { label: "MCP server", href: "/docs#mcp" },
+      { label: "Agent skill", href: "/docs#skill" },
+      { label: "Contracts", href: "/docs#contracts" },
     ],
   },
   {

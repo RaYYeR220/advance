@@ -8,6 +8,7 @@ const grouped2 = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
+const clock = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" });
 
 const HEX_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const HEX_HASH = /^0x[0-9a-fA-F]{64}$/;
@@ -123,4 +124,27 @@ export function isTxHash(value: string): value is `0x${string}` {
  * scale) — converted to a plain USD number ready for `formatUsd`. */
 export function microUsdToUsd(value: bigint): number {
   return Number(value) / 1_000_000;
+}
+
+/** A duration in whole seconds as a short label: `1_260_000` gives `"14d 14h"`, `7_200` gives
+ * `"2h"`, `90` gives `"1m"`, `0` gives `"0m"`. Never negative — a caller past its deadline
+ * should clamp to `0` before formatting, not rely on this to hide a negative runway. */
+export function formatDuration(seconds: number): string {
+  assertFinite(seconds, "duration");
+  if (seconds < 0) throw new RangeError(`duration must not be negative, got ${seconds}`);
+  const total = Math.floor(seconds);
+  const days = Math.floor(total / 86_400);
+  const hours = Math.floor((total % 86_400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  return `${minutes}m`;
+}
+
+/** A unix-seconds timestamp as a fixed UTC clock reading, e.g. `"14:32 UTC"` — deterministic
+ * regardless of the server's or the viewer's local timezone, so a client component that
+ * formats a live-polled timestamp never mismatches its own server-rendered first paint. */
+export function formatClock(timestampSeconds: number): string {
+  assertFinite(timestampSeconds, "timestamp");
+  return `${clock.format(new Date(timestampSeconds * 1000))} UTC`;
 }

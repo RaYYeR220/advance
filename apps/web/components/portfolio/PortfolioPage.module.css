@@ -1,0 +1,42 @@
+.page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding-left: var(--pad);
+  padding-right: var(--pad);
+  padding-top: var(--space-section-top);
+  padding-bottom: var(--space-section-bottom);
+  overflow-x: clip;
+}
+
+.eyebrow {
+  font-size: var(--fs-meta);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ochre-ink);
+  margin-bottom: 10px;
+}
+
+.title {
+  font-family: var(--display);
+  font-size: clamp(32px, 4vw, 48px);
+  line-height: 1.04;
+  letter-spacing: var(--track-headline);
+}
+
+.deck {
+  margin-top: 14px;
+  font-size: var(--fs-small);
+  color: var(--forest-80);
+  max-width: 42em;
+}
+
+.body {
+  margin-top: 32px;
+}
+
+@media (max-width: 860px) {
+  .page {
+    padding-top: 28px;
+  }
+}

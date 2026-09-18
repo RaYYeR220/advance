@@ -3,6 +3,8 @@ import {
   addressPrefix,
   formatBlock,
   formatCents,
+  formatClock,
+  formatDuration,
   formatInteger,
   formatMultiple,
   formatPercent,
@@ -141,5 +143,37 @@ describe("microUsdToUsd", () => {
 
   it("keeps fractional cents", () => {
     expect(microUsdToUsd(1_234_567n)).toBeCloseTo(1.234567);
+  });
+});
+
+describe("formatDuration", () => {
+  it("shows days and hours", () => {
+    expect(formatDuration(14 * 86_400)).toBe("14d");
+    expect(formatDuration(14 * 86_400 + 5 * 3600)).toBe("14d 5h");
+  });
+
+  it("shows hours and minutes once under a day", () => {
+    expect(formatDuration(2 * 3600)).toBe("2h");
+    expect(formatDuration(2 * 3600 + 15 * 60)).toBe("2h 15m");
+  });
+
+  it("shows minutes once under an hour", () => {
+    expect(formatDuration(90)).toBe("1m");
+    expect(formatDuration(0)).toBe("0m");
+  });
+
+  it("rejects negative durations", () => {
+    expect(() => formatDuration(-1)).toThrow(RangeError);
+  });
+});
+
+describe("formatClock", () => {
+  it("formats a unix timestamp as a fixed UTC clock reading", () => {
+    // 2024-01-01T14:32:00Z
+    expect(formatClock(1_704_119_520)).toBe("14:32 UTC");
+  });
+
+  it("is independent of the host timezone (fixed UTC, not local time)", () => {
+    expect(formatClock(0)).toBe("00:00 UTC");
   });
 });

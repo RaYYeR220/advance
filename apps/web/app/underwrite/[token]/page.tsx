@@ -30,7 +30,7 @@ export default async function UnderwriteTokenPage({ params }: PageProps) {
       <a className="skip-link" href="#main">
         Skip to content
       </a>
-      <Masthead links={NAV} />
+      <Masthead links={NAV} current="/underwrite" />
       <main id="main">
         <section className={styles.page}>{body}</section>
       </main>

@@ -191,6 +191,17 @@ export async function getLoanActivity(loanId: bigint, deps?: DataDeps): Promise<
   return cache.get(`activity:${loanId}`, LOAN_ACTIVITY_TTL_MS, () => events.list({ loanId, limit: LOAN_ACTIVITY_LIMIT }));
 }
 
+const RECENT_EVENTS_TTL_MS = 10_000;
+
+/** The hub's recent loan-lifecycle events plus any configured off-chain feed, unscoped to a
+ * single loan — `/economy`'s live ticker. Mirrors `/api/events`'s own no-params default (see
+ * `events.ts`'s module doc for why an unscoped read can't include per-loan contract events
+ * like `Drawn`/`Harvested`/`Claimed`, only hub-level lifecycle ones can). */
+export async function getRecentEvents(limit = 20, deps?: DataDeps): Promise<EventsPage> {
+  const events = resolveEvents(deps);
+  return cache.get(`events:recent:${limit}`, RECENT_EVENTS_TTL_MS, () => events.list({ limit }));
+}
+
 /** A token's free eligibility score from the underwriter (`GET /v1/score/:token`). */
 export async function getScore(token: Address, deps?: DataDeps): Promise<ScoreResult> {
   const client = resolveClient(deps);
@@ -231,6 +242,9 @@ export interface EconomyAgent {
    * `markDefault` due to silence — `null` when the loan isn't `Active` (grace-period
    * tracking doesn't apply to any other status). Clamped at `0`, never negative. */
   runwaySeconds: bigint | null;
+  /** The loan's own `termSheet.gracePeriod` — the denominator `runwaySeconds` counts down
+   * from, so a caller can render a meter (used vs. total) rather than just a countdown. */
+  gracePeriodSeconds: bigint;
   /** Real USDC swept to this loan's escrow within the last `lookbackDays`, summed from
    * on-chain `Harvested` events (`usdcOut`) — `0n` when there truly were none, never
    * omitted or invented. */
@@ -291,6 +305,7 @@ async function economyAgentFor(loan: LoanView, events: EventsSource, nowSeconds:
     drawn: loan.drawn,
     available: loan.available,
     runwaySeconds,
+    gracePeriodSeconds: loan.termSheet.gracePeriod,
     revenue7dUsdc,
     lastEventAt: last?.timestamp ?? null,
     lastEventType: last?.type ?? null,

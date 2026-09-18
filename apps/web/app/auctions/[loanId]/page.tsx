@@ -27,7 +27,7 @@ export default async function AuctionDetailPage({ params }: PageProps) {
       <a className="skip-link" href="#main">
         Skip to content
       </a>
-      <Masthead links={NAV} />
+      <Masthead links={NAV} current="/auctions" />
       <main id="main">{body}</main>
       <BackCover
         pitch="Paste any Bankr token. Get a score and a memo."

@@ -8,7 +8,7 @@ import styles from "@/components/underwrite/ScoreResult.module.css";
 export default function Loading() {
   return (
     <>
-      <Masthead links={NAV} />
+      <Masthead links={NAV} current="/underwrite" />
       <main id="main">
         <section className={styles.page} aria-busy="true">
           <RunningHead page={61} title="Score" />

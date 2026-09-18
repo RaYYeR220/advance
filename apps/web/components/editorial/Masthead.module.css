@@ -42,6 +42,11 @@
   background-size: 100% 3px;
 }
 
+.link[aria-current="page"] {
+  background-size: 100% 3px;
+  background-image: linear-gradient(var(--forest), var(--forest));
+}
+
 @media (max-width: 860px) {
   .head {
     height: auto;

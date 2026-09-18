@@ -33,7 +33,7 @@ export default async function AuctionsPage() {
       <a className="skip-link" href="#main">
         Skip to content
       </a>
-      <Masthead links={NAV} />
+      <Masthead links={NAV} current="/auctions" />
       <main id="main">
         <AuctionsIndex items={items} />
       </main>
