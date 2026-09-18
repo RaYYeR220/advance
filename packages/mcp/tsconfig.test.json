@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "../.."
+  },
+  "include": ["src", "test", "../sdk/test/fork/harness.ts"],
+  "exclude": ["dist"]
+}
