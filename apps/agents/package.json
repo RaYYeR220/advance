@@ -22,6 +22,8 @@
     "serve": "tsx src/bin/serve-x402-llm.ts"
   },
   "dependencies": {
+    "@advance/agent-kit": "workspace:*",
+    "@advance/core": "workspace:*",
     "@hono/node-server": "^2.1.1",
     "@whetstone-research/doppler-sdk": "1.0.43",
     "@x402/core": "2.26.0",
