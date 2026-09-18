@@ -1,0 +1,22 @@
+{
+  "hub": "0x4958a4ADbf75AF01dBeE5c2AED5aAcD391c4bdd9",
+  "escrowDeployer": "0xD5bD206615E9bDa9E5b6eB6F9CbD36ed3B91AB26",
+  "loanDeployer": "0xFe399e455E6fF9251CDae904423D69cb2772adeB",
+  "underwriter": "0x35C905C55bD6E77D7caFCFdb75DFCb05237Fe8C7",
+  "owner": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
+  "block": 46974418,
+  "config": {
+    "usdc": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    "weth": "0x4200000000000000000000000000000000000006",
+    "ccaFactory": "0x000000001F26a0044BaA66024e7b6599c61963F8",
+    "router": "0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4",
+    "ethUsdFeed": "0x4aDC67696bA383F43DD60A9e78F2C97Fbbfc7cb1",
+    "sequencerFeed": "0x0000000000000000000000000000000000000000",
+    "reputationRegistry": "0x8004B663056A597Dffe9eCcC1965A193B7388713",
+    "identityRegistry": "0x8004A818BFB912233c491871b3d84c89A494BD9e",
+    "maxStaleness": 86400,
+    "slippageBps": 3000,
+    "minActivityUsdc": 1000000,
+    "_comment": "Base Sepolia. sequencerFeed is the zero address: Base Sepolia has no L2 sequencer-uptime feed, so RevenueEscrow skips that check. maxStaleness 86400s (vs 3600s on mainnet) because the Sepolia ETH/USD feed heartbeats far less often. slippageBps 3000 (30%, vs 100 on mainnet) because the Sepolia WETH/USDC pool the escrow swaps through is thin -- a tight bound would make ordinary harvests revert on normal slippage. All eight addresses (usdc, weth, ccaFactory, router, ethUsdFeed, reputationRegistry, identityRegistry, feesManager-per-loan) were checked non-empty with `cast code --rpc-url $BASE_SEPOLIA_RPC_URL` before this file was written; see contracts/README.md for the evidence table."
+  }
+}
