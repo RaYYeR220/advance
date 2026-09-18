@@ -2,18 +2,17 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { explorerTxUrl, type ApproveDecision } from "@advance/sdk";
 import { reviveBigints } from "../json.js";
-import { jsonResult, withErrorHandling } from "../toolResult.js";
+import { errorResult, jsonResult, withErrorHandling } from "../toolResult.js";
 import { requireConfirmedSigner } from "../writeGuard.js";
+import { ApproveDecisionInputSchema, formatIssues } from "../termSheetSchema.js";
 import type { AdvanceMcpDeps } from "../server.js";
 
-function isApproveDecisionShaped(value: unknown): value is ApproveDecision {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { kind?: unknown }).kind === "approve" &&
-    typeof (value as { termSheet?: unknown }).termSheet === "object" &&
-    typeof (value as { signature?: unknown }).signature === "string"
-  );
+/** Only checks the one field cheap enough to branch on before running the full schema: whether
+ * this was even an approved decision in the first place, so a plain denied quote gets its own
+ * friendly `decision_not_approved` error instead of being reported as a pile of missing-field
+ * schema issues. */
+function revivedKind(value: unknown): unknown {
+  return typeof value === "object" && value !== null ? (value as { kind?: unknown }).kind : undefined;
 }
 
 export function registerApplyTool(server: McpServer, deps: AdvanceMcpDeps): void {
@@ -40,22 +39,31 @@ export function registerApplyTool(server: McpServer, deps: AdvanceMcpDeps): void
         if ("blocked" in guard) return guard.blocked;
 
         const revived = reviveBigints(args.decision);
-        if (!isApproveDecisionShaped(revived)) {
-          return jsonResult({
-            ok: false,
-            error: "decision_not_approved",
-            message: 'decision.kind must be "approve" with a termSheet and signature — this quote was denied or malformed.',
-          });
+        if (revivedKind(revived) !== "approve") {
+          return errorResult(
+            "decision_not_approved",
+            'decision.kind must be "approve" with a termSheet and signature — this quote was denied or malformed.',
+          );
         }
 
-        const escrow = await deps.advance.predictEscrow(revived.termSheet);
+        // Full field-by-field validation (addresses checksummed and non-zero, every id/amount
+        // within its Solidity type's range, every hash a real 32 bytes) — this is the boundary
+        // between an arbitrary caller-supplied JSON object and the chain layer; nothing past this
+        // point should be able to reach `predictEscrow`/`prepareApplication`/`openLoan` unvalidated.
+        const parsed = ApproveDecisionInputSchema.safeParse(revived);
+        if (!parsed.success) {
+          return errorResult("invalid_decision", formatIssues(parsed.error));
+        }
+        const decision = parsed.data as unknown as ApproveDecision;
+
+        const escrow = await deps.advance.predictEscrow(decision.termSheet);
         // `prepareApplication`'s `openLoan` tx is discarded — `deps.advance.openLoan` below sends
         // the exact same call via the SDK's simulate-then-write path, which also recovers the
         // assigned `loanId` from the simulation's return value (the raw encoded tx alone can't).
-        const { moveBeneficiary } = deps.advance.prepareApplication(revived);
+        const { moveBeneficiary } = deps.advance.prepareApplication(decision);
 
         const moveBeneficiaryTx = await deps.advance.sendPreparedTx(guard.wallet, moveBeneficiary);
-        const { hash: openLoanHash, loanId } = await deps.advance.openLoan(guard.wallet, revived);
+        const { hash: openLoanHash, loanId } = await deps.advance.openLoan(guard.wallet, decision);
 
         return jsonResult({
           ok: true,

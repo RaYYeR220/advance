@@ -12,7 +12,7 @@ import { loadConfig, type McpConfig } from "../config.js";
 import { buildAdvanceOperations } from "../client.js";
 import { envPrivateKeySigner } from "../signer.js";
 import { httpJsonRefusalSource } from "../refusalSource.js";
-import { createHttpServer } from "../http.js";
+import { createHttpServer, type HttpServerOptions } from "../http.js";
 import { runStdioServer } from "../stdio.js";
 import type { AdvanceMcpDeps } from "../server.js";
 
@@ -38,17 +38,38 @@ function isDirectRun(): boolean {
   return resolvePath(fileURLToPath(import.meta.url)).toLowerCase() === resolvePath(entry).toLowerCase();
 }
 
+/** Refuses to boot into an insecure state rather than silently serving one: an explicit
+ * `MCP_BIND_HOST` (anything other than the loopback default) means this is reachable from off
+ * this machine, so `MCP_AUTH_TOKEN` must be configured before it starts listening at all — never
+ * logs the token itself, only whether one is present. */
+function httpOptionsOrExit(config: McpConfig): HttpServerOptions {
+  if (config.hostExplicit && !config.authToken) {
+    console.error(
+      "advance-mcp: MCP_BIND_HOST is set but MCP_AUTH_TOKEN is not — refusing to start an HTTP transport reachable from outside this machine without a token",
+    );
+    process.exit(1);
+  }
+  return {
+    authRequired: config.hostExplicit,
+    authToken: config.authToken,
+    allowedHostnames: config.allowedOriginHostnames,
+  };
+}
+
 if (isDirectRun()) {
   const config = loadConfig();
   const deps = buildDeps(config);
 
   if (process.argv.includes("--http")) {
     const port = config.port ?? DEFAULT_HTTP_PORT;
-    const server = createHttpServer(deps);
-    server.listen(port, () => {
+    const httpOptions = httpOptionsOrExit(config);
+    const server = createHttpServer(deps, httpOptions);
+    server.listen(port, config.host, () => {
       // stdout is reserved for JSON-RPC in stdio mode; this branch never uses stdio, but stderr
       // is the safe habit regardless.
-      console.error(`advance-mcp listening on :${port}/mcp (chain ${config.chainId})`);
+      console.error(
+        `advance-mcp listening on ${config.host}:${port}/mcp (chain ${config.chainId}, auth ${httpOptions.authRequired ? "required" : "not required (loopback default)"})`,
+      );
     });
     const shutdown = (signal: string) => {
       console.error(`received ${signal}, shutting down`);

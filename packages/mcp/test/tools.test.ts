@@ -230,10 +230,106 @@ describe("advance mcp server", () => {
       arguments: { decision: { kind: "deny", reasons: ["too_young"] }, confirm: true },
     })) as CallToolResult;
 
+    expect(result.isError).toBe(true);
     const body = bodyOf(result) as { ok: boolean; error: string };
     expect(body.ok).toBe(false);
     expect(body.error).toBe("decision_not_approved");
     expect(advance.calls.predictEscrow).toBeUndefined();
+  });
+
+  describe("advance_apply input validation", () => {
+    function deps(): AdvanceMcpDeps {
+      return {
+        advance: createFakeAdvanceOperations(),
+        chainId: 84532,
+        signer: async () => fakeWallet(),
+        refusalSource: NO_REFUSALS,
+      };
+    }
+
+    async function callApply(decision: unknown): Promise<{ result: CallToolResult; advance: ReturnType<typeof createFakeAdvanceOperations> }> {
+      const d = deps();
+      const client = await connectedClient(d);
+      const result = (await client.callTool({
+        name: "advance_apply",
+        arguments: { decision, confirm: true },
+      })) as CallToolResult;
+      return { result, advance: d.advance as ReturnType<typeof createFakeAdvanceOperations> };
+    }
+
+    it("rejects the zero address in a term sheet field", async () => {
+      const decisionJson = JSON.parse(JSON.stringify(toJsonSafe(SAMPLE_APPROVE_DECISION))) as {
+        termSheet: Record<string, unknown>;
+      };
+      decisionJson.termSheet.agentTreasury = "0x0000000000000000000000000000000000000000";
+
+      const { result, advance } = await callApply(decisionJson);
+
+      expect(result.isError).toBe(true);
+      const body = bodyOf(result) as { error: string; message: string };
+      expect(body.error).toBe("invalid_decision");
+      expect(body.message).toContain("agentTreasury");
+      expect(advance.calls.predictEscrow).toBeUndefined();
+    });
+
+    it("rejects a badly checksummed address", async () => {
+      const decisionJson = JSON.parse(JSON.stringify(toJsonSafe(SAMPLE_APPROVE_DECISION))) as {
+        termSheet: Record<string, unknown>;
+      };
+      // Valid hex, wrong EIP-55 casing (uppercase letters where the checksum requires lowercase).
+      decisionJson.termSheet.agentCard = "0xABCDEF1234567890ABCDEF1234567890ABCDEF12";
+
+      const { result, advance } = await callApply(decisionJson);
+
+      expect(result.isError).toBe(true);
+      const body = bodyOf(result) as { error: string; message: string };
+      expect(body.error).toBe("invalid_decision");
+      expect(body.message).toContain("agentCard");
+      expect(advance.calls.predictEscrow).toBeUndefined();
+    });
+
+    it("rejects an id/amount out of its Solidity type's range", async () => {
+      const decisionJson = JSON.parse(JSON.stringify(toJsonSafe(SAMPLE_APPROVE_DECISION))) as {
+        termSheet: Record<string, unknown>;
+      };
+      // floorCents is uint16 (max 65535).
+      decisionJson.termSheet.floorCents = 70_000;
+
+      const { result, advance } = await callApply(decisionJson);
+
+      expect(result.isError).toBe(true);
+      const body = bodyOf(result) as { error: string; message: string };
+      expect(body.error).toBe("invalid_decision");
+      expect(body.message).toContain("floorCents");
+      expect(advance.calls.predictEscrow).toBeUndefined();
+    });
+
+    it("rejects a malformed signature", async () => {
+      const decisionJson = JSON.parse(JSON.stringify(toJsonSafe(SAMPLE_APPROVE_DECISION))) as Record<string, unknown>;
+      decisionJson.signature = "0xnotasignature";
+
+      const { result, advance } = await callApply(decisionJson);
+
+      expect(result.isError).toBe(true);
+      const body = bodyOf(result) as { error: string; message: string };
+      expect(body.error).toBe("invalid_decision");
+      expect(body.message).toContain("signature");
+      expect(advance.calls.predictEscrow).toBeUndefined();
+    });
+
+    it("rejects a term sheet missing a required field", async () => {
+      const decisionJson = JSON.parse(JSON.stringify(toJsonSafe(SAMPLE_APPROVE_DECISION))) as {
+        termSheet: Record<string, unknown>;
+      };
+      delete decisionJson.termSheet.noteSupply;
+
+      const { result, advance } = await callApply(decisionJson);
+
+      expect(result.isError).toBe(true);
+      const body = bodyOf(result) as { error: string };
+      expect(body.error).toBe("invalid_decision");
+      expect(advance.calls.predictEscrow).toBeUndefined();
+    });
   });
 
   it("advance_explain_refusal reports events_unavailable when the feed isn't configured", async () => {

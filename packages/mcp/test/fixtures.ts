@@ -10,6 +10,12 @@ function hash(digit: string): Hex {
   return `0x${digit.repeat(64)}` as Hex;
 }
 
+/** A well-formed 65-byte ECDSA signature (130 hex chars) — real `signTypedData` output length,
+ * which `ApproveDecisionInputSchema` now checks. */
+function signature(digit: string): Hex {
+  return `0x${digit.repeat(130)}` as Hex;
+}
+
 export const TOKEN: Address = addr("1");
 export const AGENT_CARD: Address = addr("2");
 export const AGENT_TREASURY: Address = addr("3");
@@ -21,6 +27,7 @@ export const AUCTION: Address = addr("8");
 export const FEES_MANAGER: Address = addr("9");
 export const TX_HASH: Hex = hash("a");
 export const MEMO_HASH: Hex = hash("b");
+export const SIGNATURE: Hex = signature("d");
 
 export const SAMPLE_TERM_SHEET: TermSheet = {
   agentTreasury: AGENT_TREASURY,
@@ -45,7 +52,7 @@ export const SAMPLE_APPROVE_DECISION: ApproveDecision = {
   kind: "approve",
   token: TOKEN,
   termSheet: SAMPLE_TERM_SHEET,
-  signature: TX_HASH,
+  signature: SIGNATURE,
   digest: MEMO_HASH,
   terms: {
     revenueWei: { d1: 0n, d7: 0n, d30: 0n },
