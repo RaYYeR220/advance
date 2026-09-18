@@ -2,16 +2,17 @@ import { randomUUID } from "node:crypto";
 import type { Store } from "./store.js";
 
 /**
- * A structured record of one agent/keeper/red-team action, per plan-03's global
- * constraint: every such action appends one of these. The web app's live feed reads
- * them back; nothing here assumes how.
+ * A structured record of one agent/keeper/red-team action - every such action
+ * appends one of these so a live feed (or a test) can read them back. Nothing here
+ * assumes how they're consumed.
  */
 export interface AgentEvent {
   /** Unix epoch milliseconds. */
   ts: number;
   /** Which agent (or keeper/red-team run) produced this event. */
   agent: string;
-  /** Event kind, e.g. "refusal", "receipt". Free-form - callers own their own vocabulary. */
+  /** Event kind, e.g. "refusal", "receipt", "settlement_failed". Free-form -
+   * callers own their own vocabulary. */
   kind: string;
   /** Structured payload; shape depends on `kind`. */
   data: Record<string, unknown>;

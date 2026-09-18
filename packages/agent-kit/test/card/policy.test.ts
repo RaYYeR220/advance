@@ -14,6 +14,7 @@ function baseCard(overrides: Partial<CardPolicyConfig> = {}): CardPolicyConfig {
     perCallCap: 10_000n,
     maxAuthWindow: 300n,
     usdcBalance: 1_000_000n,
+    frozen: false,
     ...overrides,
   };
 }
@@ -32,6 +33,13 @@ function baseReq(overrides: Partial<PaymentRequirementLike> = {}): PaymentRequir
 describe("precheck", () => {
   it("passes a requirement that satisfies every rule", () => {
     expect(precheck(baseReq(), baseCard())).toEqual({ ok: true });
+  });
+
+  it("refuses when the card is frozen, before any other check", () => {
+    // network is also wrong here - frozen must still win, since a frozen card
+    // can never pay regardless of any other field.
+    const req = baseReq({ network: "eip155:84532" });
+    expect(precheck(req, baseCard({ frozen: true }))).toEqual({ ok: false, reason: "card_frozen" });
   });
 
   it("passes with case-different but same-value addresses (asset, payTo)", () => {

@@ -13,6 +13,9 @@ export interface CardSignerDeps {
   keys: CardSignerKeys;
   /** This card's own `usdc()` - the only `verifyingContract` this signer will ever sign for. */
   usdc: Address;
+  /** The chain this card is deployed on - the only `domain.chainId` this signer
+   * will ever sign for. */
+  chainId: number;
 }
 
 /** `@x402/evm`'s `ClientEvmSigner` shape, restated locally so this module doesn't
@@ -54,6 +57,13 @@ export function cardSigner(card: Address, ownerLabel: string, deps: CardSignerDe
       if (typeof verifyingContract !== "string" || getAddress(verifyingContract) !== usdc) {
         throw new Error(
           `cardSigner: refusing to sign - domain.verifyingContract (${String(verifyingContract)}) is not this card's USDC (${usdc})`,
+        );
+      }
+
+      const domainChainId = typedData.domain["chainId"];
+      if (typeof domainChainId !== "number" || domainChainId !== deps.chainId) {
+        throw new Error(
+          `cardSigner: refusing to sign - domain.chainId (${String(domainChainId)}) is not this card's chain (${deps.chainId})`,
         );
       }
 

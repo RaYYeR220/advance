@@ -3,9 +3,9 @@ import { createPublicClient, encodeAbiParameters, http, keccak256, pad, toHex, t
 import { base } from "viem/chains";
 
 /**
- * USDC (FiatTokenV2_2) `balanceAndBlacklistStates` mapping slot. Verified against Base
- * mainnet USDC by writing to it on a live anvil fork and reading back `balanceOf`
- * (same slot the card1271-x402 spike and the Task 6 Base Sepolia fork helper use).
+ * USDC (FiatTokenV2_2) `balanceAndBlacklistStates` mapping slot. Verified against
+ * Base mainnet USDC by writing to it on a live anvil fork and reading back
+ * `balanceOf`.
  */
 const USDC_BALANCE_SLOT = 9n;
 

@@ -8,11 +8,10 @@ import { base } from "viem/chains";
 
 /**
  * A real x402 facilitator (verify + on-chain settle) running in-process against an
- * anvil fork - the same reference-facilitator pattern the card1271-x402 spike and
- * Task 6's Base Sepolia helper use, pointed at Base mainnet. Returns both the raw
- * `x402Facilitator` (for tests that call `verify`/`settle` directly, bypassing the
- * gateway entirely) and a `FacilitatorClient` adapter (for wiring into a resource
- * server such as `@x402/hono`'s `paymentMiddleware`).
+ * anvil fork of Base mainnet. Returns both the raw `x402Facilitator` (for tests
+ * that call `verify`/`settle` directly, bypassing the gateway entirely) and a
+ * `FacilitatorClient` adapter (for wiring into a resource server such as
+ * `@x402/hono`'s `paymentMiddleware`).
  */
 export function createInProcessFacilitator(params: {
   rpcUrl: string;

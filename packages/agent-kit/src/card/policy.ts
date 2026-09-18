@@ -33,9 +33,14 @@ export interface CardPolicyConfig {
   maxAuthWindow: bigint;
   /** The card's current USDC balance, USDC-wei. */
   usdcBalance: bigint;
+  /** The card's current `frozen()` state. Mutable (the hub can freeze/unfreeze at
+   * any time), so - unlike `payees`/`perCallCap`/`maxAuthWindow`/`usdc` - it must
+   * be read fresh, never cached. */
+  frozen: boolean;
 }
 
 export type PrecheckRefusalReason =
+  | "card_frozen"
   | "network_mismatch"
   | "asset_mismatch"
   | "invalid_amount"
@@ -57,6 +62,9 @@ function sameAddress(a: string, b: string): boolean {
  * replacement for it. No I/O, no mutation of its inputs.
  */
 export function precheck(req: PaymentRequirementLike, card: CardPolicyConfig): PrecheckResult {
+  if (card.frozen) {
+    return { ok: false, reason: "card_frozen" };
+  }
   if (req.network !== card.network) {
     return { ok: false, reason: "network_mismatch" };
   }

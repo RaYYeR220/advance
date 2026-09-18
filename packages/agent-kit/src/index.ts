@@ -17,4 +17,19 @@ export {
   type PrecheckRefusalReason,
   type PrecheckResult,
 } from "./card/policy.js";
-export { createCardFetch, type CreateCardFetchParams } from "./card/gateway.js";
+export { createCardFetch, isGatewayRefusalResponse, type CreateCardFetchParams } from "./card/gateway.js";
+export { dynamicAccount, publicClientFor, walletClientFor, type ActionKeys } from "./chain/clients.js";
+export {
+  registerAgent,
+  moveBeneficiary,
+  openLoan,
+  drawCredit,
+  bidOnNote,
+  settleAuction,
+  harvest,
+  markDefault,
+  claim,
+  type ActionAddresses,
+  type ActionContext,
+  type TxResult,
+} from "./chain/actions.js";

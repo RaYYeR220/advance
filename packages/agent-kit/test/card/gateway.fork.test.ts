@@ -22,19 +22,19 @@ import type { EvmTypedData } from "../../src/dynamic.js";
 import { startAnvilFork, type AnvilFork } from "../helpers/anvil-fork.js";
 import { createInProcessFacilitator } from "../helpers/in-process-facilitator.js";
 
-// This suite forks live Base mainnet, so it only runs with BASE_RPC_URL set (see
-// internal/.env, never printed/committed) - unset, it self-skips like every other
-// fork suite in this repo.
+// This suite forks live Base mainnet, so it only runs with the BASE_RPC_URL
+// environment variable set to an archive-capable RPC endpoint - unset, it
+// self-skips like every other fork suite in this repo.
 const BASE_RPC_URL = process.env.BASE_RPC_URL;
 const describeIfFork = BASE_RPC_URL ? describe : describe.skip;
 
 const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as Address;
-// Real payTo captured from Bankr's live x402 402 response (internal/spikes/card1271-x402/bankr-402.json).
+// A real x402 payTo address, used here as a stand-in resource-server payee.
 const BANKR_PAYTO = "0x8AEE621035D93Deb3C0C1177fac252dC2dd501a0" as Address;
 const OTHER_TEST_PAYEE = "0x2222222222222222222222222222222222222222" as Address;
 const EVIL = "0x000000000000000000000000000000000000dEaD" as Address;
 const NETWORK: Network = "eip155:8453";
-const PER_CALL_CAP = 10_000n; // 0.01 USDC atomic units, matching the spike's cap.
+const PER_CALL_CAP = 10_000n; // 0.01 USDC atomic units.
 const MAX_AUTH_WINDOW = 3600n;
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -56,8 +56,8 @@ function loadArtifact(): ForgeArtifact {
 }
 
 /** Wraps a local viem account behind the exact interface `cardSigner`/`createCardFetch`
- * need from Dynamic (`signTypedData(label, typedData) -> Hex`) - the fake Dynamic
- * client the brief calls for, standing in for a real MPC-signed owner key. */
+ * need from Dynamic (`signTypedData(label, typedData) -> Hex`), standing in for a
+ * real MPC-signed owner key. */
 function fakeKeysFor(account: ReturnType<typeof privateKeyToAccount>) {
   return {
     async signTypedData(_label: string, typedData: EvmTypedData): Promise<Hex> {
@@ -249,7 +249,7 @@ describeIfFork("card gateway (anvil fork of Base mainnet + in-process x402 facil
     "forced bypass: skipping the gateway entirely and asking the facilitator to settle a non-allowlisted blob still fails on-chain",
     async () => {
       const bypassClient = new x402Client();
-      const bypassSigner = cardSigner(card, "agent-fork", { keys: fakeKeysFor(owner), usdc: USDC });
+      const bypassSigner = cardSigner(card, "agent-fork", { keys: fakeKeysFor(owner), usdc: USDC, chainId: 8453 });
       registerClientScheme(bypassClient, { signer: bypassSigner, networks: [NETWORK] });
 
       const requirement: PaymentRequirements = {
