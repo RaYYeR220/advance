@@ -11,6 +11,7 @@ import {OracleLib} from "../../src/lib/OracleLib.sol";
 import {PoolKey} from "../../src/interfaces/IDopplerFeesManager.sol";
 import {ISwapRouter02} from "../../src/interfaces/ISwapRouter02.sol";
 import {
+    GasBurningToken,
     MockCreditLine,
     MockERC20,
     MockFeed,
@@ -1029,6 +1030,47 @@ contract RevenueEscrowTest is Test {
     }
 
     // ---------------------------------------------------------------------------------------
+    // harvest: gas-bombing agent token (bounded-gas hardening)
+    // ---------------------------------------------------------------------------------------
+
+    /// @dev A token whose `balanceOf` alone burns every unit of gas it is handed must not be able
+    /// to starve the rest of `harvest` of gas: with a bounded stipend, the read simply fails and
+    /// the harvest completes on the gas budget a real keeper would use.
+    function test_harvest_gasBurningAgentToken_balanceOfBurns_stillCompletesAndDistributes() public {
+        GasBurningToken bomb = new GasBurningToken();
+        _deployLoan(address(bomb), false);
+        _bindAndActivate();
+        _accrue(POOL_WETH, 0); // no fee-derived bomb-token balance; only the WETH leg is real
+        bomb.mint(address(escrow), 800e18);
+
+        vm.expectEmit(address(escrow));
+        emit RevenueEscrow.ForwardFailed(address(bomb), 0);
+        (bool ok,) = address(escrow).call{gas: 3_000_000}(abi.encodeCall(RevenueEscrow.harvest, (uint256(0))));
+
+        assertTrue(ok, "harvest must survive a balanceOf-bombing agent token");
+        assertGt(note.totalRepaid(), 0, "still distributes to noteholders");
+    }
+
+    /// @dev Mirrors the audit's own correction: a token whose `balanceOf` behaves normally but
+    /// whose `transfer` burns all forwarded gas is the "second leg" that must independently be
+    /// bounded, or the balance-read fix alone is not enough.
+    function test_harvest_gasBurningAgentToken_transferBurns_stillCompletesAndDistributes() public {
+        GasBurningToken bomb = new GasBurningToken();
+        bomb.setBurns(false, true);
+        _deployLoan(address(bomb), false);
+        _bindAndActivate();
+        _accrue(POOL_WETH, 0);
+        bomb.mint(address(escrow), 800e18);
+
+        vm.expectEmit(address(escrow));
+        emit RevenueEscrow.ForwardFailed(address(bomb), 800e18);
+        (bool ok,) = address(escrow).call{gas: 3_000_000}(abi.encodeCall(RevenueEscrow.harvest, (uint256(0))));
+
+        assertTrue(ok, "harvest must survive a transfer-bombing agent token");
+        assertGt(note.totalRepaid(), 0, "still distributes to noteholders");
+    }
+
+    // ---------------------------------------------------------------------------------------
     // closeIfRepaid
     // ---------------------------------------------------------------------------------------
 
@@ -1086,6 +1128,30 @@ contract RevenueEscrowTest is Test {
             abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector)
         );
         assertEq(evil.balanceOf(treasury), 800e18);
+        _assertPhase(RevenueEscrow.Phase.Closed);
+        assertEq(hub.repaidCallCount(), 1);
+    }
+
+    /// @dev The hub calls `closeIfRepaid` unconditionally at the end of `markDefault`; a
+    /// gas-bombing agent token must not be able to turn that unconditional call into a brick.
+    function test_closeIfRepaid_gasBurningAgentToken_stillCompletes() public {
+        GasBurningToken bomb = new GasBurningToken();
+        _deployLoan(address(bomb), false);
+        _bindAndActivate();
+        bomb.mint(address(escrow), 800e18);
+        usdc.mint(address(creditLine), 5e6);
+        vm.startPrank(address(creditLine));
+        usdc.approve(address(note), 5e6);
+        note.distribute(5e6);
+        vm.stopPrank();
+
+        vm.expectEmit(address(escrow));
+        emit RevenueEscrow.ForwardFailed(address(bomb), 0);
+        (bool ok, bytes memory ret) =
+            address(escrow).call{gas: 1_000_000}(abi.encodeCall(RevenueEscrow.closeIfRepaid, ()));
+
+        assertTrue(ok, "closeIfRepaid must survive a gas-bombing agent token");
+        assertTrue(abi.decode(ret, (bool)));
         _assertPhase(RevenueEscrow.Phase.Closed);
         assertEq(hub.repaidCallCount(), 1);
     }
@@ -1248,6 +1314,68 @@ contract RevenueEscrowTest is Test {
         vm.expectRevert(RevenueEscrow.WrongPhase.selector);
         escrow.release();
         vm.stopPrank();
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // release: gas-bombing agent token and hostile fees manager (bounded-gas hardening)
+    // ---------------------------------------------------------------------------------------
+
+    /// @dev A failed auction's `settleAuction` calls `release()` on a bound, Failed credit line.
+    /// A gas-bombing agent token must not be able to brick that hand-back.
+    function test_release_boundLoan_gasBurningAgentToken_stillCompletes() public {
+        GasBurningToken bomb = new GasBurningToken();
+        _deployLoan(address(bomb), false);
+        _bind();
+        creditLine.setState(CreditLine.State.Failed);
+        bomb.mint(address(escrow), 800e18);
+        _giveWeth(address(escrow), 1e15);
+        usdc.mint(address(escrow), 1e6);
+
+        vm.expectEmit(address(escrow));
+        emit RevenueEscrow.ForwardFailed(address(bomb), 0);
+        vm.prank(address(hub));
+        (bool ok,) = address(escrow).call{gas: 500_000}(abi.encodeCall(RevenueEscrow.release, ()));
+
+        assertTrue(ok, "release must survive a gas-bombing agent token");
+        _assertPhase(RevenueEscrow.Phase.Closed);
+        assertEq(weth.balanceOf(treasury), 1e15, "the honest WETH leg still gets forwarded");
+        assertEq(usdc.balanceOf(treasury), 1e6, "the honest USDC leg still gets forwarded");
+    }
+
+    /// @dev `abort()` releases an escrow that was never bound. A gas-bombing agent token must not
+    /// be able to permanently strand that loan's shares.
+    function test_release_abortedLoan_gasBurningAgentToken_stillCompletes() public {
+        GasBurningToken bomb = new GasBurningToken();
+        _deployLoan(address(bomb), false);
+        bomb.mint(address(escrow), 800e18);
+        _giveWeth(address(escrow), 1e15);
+        usdc.mint(address(escrow), 1e6);
+
+        vm.expectEmit(address(escrow));
+        emit RevenueEscrow.ForwardFailed(address(bomb), 0);
+        vm.prank(address(hub));
+        (bool ok,) = address(escrow).call{gas: 500_000}(abi.encodeCall(RevenueEscrow.release, ()));
+
+        assertTrue(ok, "release (abort path) must survive a gas-bombing agent token");
+        _assertPhase(RevenueEscrow.Phase.Closed);
+        assertEq(weth.balanceOf(treasury), 1e15, "the honest WETH leg still gets forwarded");
+        assertEq(usdc.balanceOf(treasury), 1e6, "the honest USDC leg still gets forwarded");
+    }
+
+    /// @dev A hostile `feesManager` that reverts `collectFees` with a multi-megabyte payload must
+    /// not be able to make `release()` pay for copying it (the bare `catch {}` did, unbounded).
+    function test_release_hostileFeesManagerHugeRevert_boundsGas() public {
+        fm.setCollectRevertBytes(1_048_576); // 1 MiB
+
+        vm.expectEmit(address(escrow));
+        emit RevenueEscrow.CollectFailed();
+        vm.prank(address(hub));
+        uint256 gasBefore = gasleft();
+        escrow.release();
+        uint256 gasUsed = gasBefore - gasleft();
+
+        assertLt(gasUsed, 1_500_000, "release must not pay for a hostile multi-megabyte revert");
+        _assertPhase(RevenueEscrow.Phase.Closed);
     }
 
     // ---------------------------------------------------------------------------------------

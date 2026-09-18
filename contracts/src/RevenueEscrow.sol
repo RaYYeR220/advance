@@ -70,6 +70,23 @@ contract RevenueEscrow is ReentrancyGuardTransient {
     /// @dev Share denominator used by the Doppler fees manager.
     uint256 internal constant WAD = 1e18;
 
+    /// @dev Gas stipend for every call into the pool's non-WETH currency (the "agent" leg): a
+    /// fully hostile token could otherwise consume the whole remaining frame via `gas()` on the
+    /// balance read, the transfer, or both, and permanently brick every path that forwards it.
+    /// Generous for any standard ERC20's `balanceOf`/`transfer`.
+    uint256 internal constant TOKEN_CALL_GAS = 100_000;
+
+    /// @dev Gas stipend for `feesManager.collectFees` where a failure must not be allowed to
+    /// block or grief the caller (`release`'s best-effort collect). Generous: a legitimate,
+    /// first-time collect touches cold storage across both pool currencies. `harvest`'s own
+    /// `collectFees` call is deliberately unbounded: a failure there should revert the harvest.
+    uint256 internal constant COLLECT_FEES_GAS = 1_000_000;
+
+    /// @dev Maximum bytes of return/revert data ever copied back from a call into
+    /// attacker-controlled code, so a multi-megabyte payload can't make its quadratic
+    /// memory-expansion cost the caller's problem.
+    uint256 internal constant MAX_REASON_BYTES = 256;
+
     /// @notice AdvanceHub; the only caller allowed to `bind`, `activate` and `release`.
     address public immutable hub;
     /// @notice Doppler fees manager holding the pool's beneficiary shares.
@@ -326,10 +343,10 @@ contract RevenueEscrow is ReentrancyGuardTransient {
 
         phase = Phase.Closed;
 
-        try feesManager.collectFees(poolId) {}
-        catch {
-            emit CollectFailed();
-        }
+        (bool collected,) = _callBounded(
+            address(feesManager), COLLECT_FEES_GAS, abi.encodeCall(IDopplerFeesManager.collectFees, (poolId))
+        );
+        if (!collected) emit CollectFailed();
 
         _returnBeneficiary();
         _sweep(feesManager.getPoolKey(poolId));
@@ -427,9 +444,11 @@ contract RevenueEscrow is ReentrancyGuardTransient {
     }
 
     /// @dev Sends the escrow's whole `token` balance to the treasury without ever reverting: the
-    /// balance read and the transfer are low-level calls that copy at most 32 bytes of return
-    /// data, and any failure (revert, `false`, malformed or missing return data, no code) only
-    /// emits `ForwardFailed`, leaving the balance for a later retry. Returns the amount actually sent.
+    /// balance read and the transfer are low-level calls on a `TOKEN_CALL_GAS` stipend each,
+    /// copying at most one word of return data, and any failure (out of gas, revert, `false`,
+    /// malformed or missing return data, no code) only emits `ForwardFailed`, leaving the balance
+    /// for a later retry. A token that burns its entire stipend can cost the caller at most
+    /// `TOKEN_CALL_GAS` per call, never the whole remaining frame. Returns the amount actually sent.
     function _forward(address token) internal returns (uint256 forwarded) {
         (bool readable, uint256 amount) = _tryBalanceOf(token);
         if (!readable) {
@@ -438,7 +457,7 @@ contract RevenueEscrow is ReentrancyGuardTransient {
         }
         if (amount == 0) return 0;
 
-        if (IERC20(token).trySafeTransfer(treasury, amount)) {
+        if (_tryTransfer(token, amount)) {
             emit Forwarded(token, amount);
             return amount;
         }
@@ -446,17 +465,54 @@ contract RevenueEscrow is ReentrancyGuardTransient {
         return 0;
     }
 
-    /// @dev `token.balanceOf(this)` as a staticcall that never reverts and never copies more than
-    /// one word of return data. `ok` is false if the call failed or returned less than one word.
-    /// Calldata is built in the 0x00-0x23 scratch space only.
+    /// @dev `token.balanceOf(this)` as a staticcall bounded to `TOKEN_CALL_GAS`, that never
+    /// reverts and never copies more than one word of return data. `ok` is false if the call
+    /// failed (including running out of its stipend) or returned less than one word. Calldata is
+    /// built in the 0x00-0x23 scratch space only.
     function _tryBalanceOf(address token) internal view returns (bool ok, uint256 amount) {
         bytes4 selector = IERC20.balanceOf.selector;
+        uint256 stipend = TOKEN_CALL_GAS;
         assembly ("memory-safe") {
             mstore(0x00, selector)
             mstore(0x04, address())
-            ok := staticcall(gas(), token, 0x00, 0x24, 0x00, 0x20)
+            ok := staticcall(stipend, token, 0x00, 0x24, 0x00, 0x20)
             ok := and(ok, gt(returndatasize(), 0x1f))
             amount := mload(0x00)
+        }
+    }
+
+    /// @dev Sends `amount` of `token` to `treasury` on a `TOKEN_CALL_GAS` stipend instead of the
+    /// caller's entire remaining gas. Matches OpenZeppelin's optional-return-value handling
+    /// (`SafeERC20._callOptionalReturnBool`) exactly, only bounded: succeeds if the call itself
+    /// succeeds and either returned nothing (from a token with code, i.e. a non-standard ERC20)
+    /// or returned `true`. Never reverts.
+    function _tryTransfer(address token, uint256 amount) internal returns (bool ok) {
+        bytes memory data = abi.encodeCall(IERC20.transfer, (treasury, amount));
+        uint256 stipend = TOKEN_CALL_GAS;
+        bool success;
+        uint256 returnSize;
+        uint256 returnValue;
+        assembly ("memory-safe") {
+            success := call(stipend, token, 0, add(data, 0x20), mload(data), 0, 0x20)
+            returnSize := returndatasize()
+            returnValue := mload(0x00)
+        }
+        ok = success && (returnSize == 0 ? token.code.length > 0 : returnValue == 1);
+    }
+
+    /// @dev Calls `target` with `data` on a `stipend` gas budget, copying at most
+    /// `MAX_REASON_BYTES` of whatever it returns. Never reverts.
+    function _callBounded(address target, uint256 stipend, bytes memory data)
+        internal
+        returns (bool ok, bytes memory reason)
+    {
+        reason = new bytes(MAX_REASON_BYTES);
+        assembly ("memory-safe") {
+            ok := call(stipend, target, 0, add(data, 0x20), mload(data), 0, 0)
+            let size := returndatasize()
+            if gt(size, MAX_REASON_BYTES) { size := MAX_REASON_BYTES }
+            returndatacopy(add(reason, 0x20), 0, size)
+            mstore(reason, size)
         }
     }
 

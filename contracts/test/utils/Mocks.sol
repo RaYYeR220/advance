@@ -142,6 +142,44 @@ contract MockERC20 is ERC20 {
     }
 }
 
+/// @notice Agent token that burns every bit of gas it is handed in `balanceOf` and/or `transfer`
+/// (independently toggleable) instead of ever returning, standing in for a fully hostile pool
+/// currency that tries to brick a caller who forwards it unbounded gas. With an unbounded stipend
+/// this exhausts the whole call; with a bounded one it only costs the stipend and the call simply
+/// fails.
+contract GasBurningToken is MockERC20 {
+    bool public burnOnBalanceOf = true;
+    bool public burnOnTransfer = true;
+
+    constructor() MockERC20("Gas Bomb", "BOMB", 18) {}
+
+    /// @notice Test hook: toggles which call(s) burn gas, so a caller's two call sites (the
+    /// balance read and the transfer) can be proven bounded independently.
+    function setBurns(bool onBalanceOf, bool onTransfer) external {
+        burnOnBalanceOf = onBalanceOf;
+        burnOnTransfer = onTransfer;
+    }
+
+    function balanceOf(address account) public view override returns (uint256) {
+        if (burnOnBalanceOf) _burnAllGas();
+        return super.balanceOf(account);
+    }
+
+    function transfer(address to, uint256 value) public override returns (bool) {
+        if (burnOnTransfer) _burnAllGas();
+        return super.transfer(to, value);
+    }
+
+    /// @dev Loops forever, guaranteeing the call consumes every unit of gas it was given rather
+    /// than returning, regardless of how large or small that stipend is.
+    function _burnAllGas() internal pure {
+        uint256 x = 1;
+        while (true) {
+            x = uint256(keccak256(abi.encode(x)));
+        }
+    }
+}
+
 /// @notice Minimal but faithful mock of a CCA v2.1.0 auction. Mirrors the real contract's
 /// lazy-checkpoint semantics: `isGraduated()` reflects `pendingGraduated` (set via the test hook
 /// `setGraduated`, standing in for bids that have landed) only once `checkpoint()` — or, per the
@@ -443,6 +481,8 @@ contract MockFeesManager is IDopplerFeesManager {
     bool public updateBeneficiaryReverts;
     /// @notice Size, in bytes, of the revert data `updateBeneficiary` throws (0 = the short revert).
     uint256 public updateBeneficiaryRevertBytes;
+    /// @notice Size, in bytes, of the revert data `collectFees` throws (0 = the short revert).
+    uint256 public collectRevertBytes;
 
     event Release(bytes32 indexed poolId, address indexed beneficiary, uint256 fees0, uint256 fees1);
     event Collect(bytes32 indexed poolId, uint256 fees0, uint256 fees1);
@@ -501,7 +541,22 @@ contract MockFeesManager is IDopplerFeesManager {
         updateBeneficiaryRevertBytes = size;
     }
 
+    /// @notice Test hook: makes `collectFees` revert with `size` bytes of revert data, the way a
+    /// hostile fees manager grieves a caller that copies revert data unbounded. Zero restores the
+    /// normal (short) revert.
+    function setCollectRevertBytes(uint256 size) external {
+        collectRevertBytes = size;
+    }
+
     function collectFees(bytes32 poolId) external nonReentrant returns (uint128 fees0, uint128 fees1) {
+        uint256 revertBytes = collectRevertBytes;
+        if (revertBytes != 0) {
+            assembly ("memory-safe") {
+                let ptr := mload(0x40)
+                mstore(0x40, add(ptr, revertBytes))
+                revert(ptr, revertBytes)
+            }
+        }
         if (collectReverts) revert WrongPoolStatus();
 
         fees0 = uint128(uncollectedFees0[poolId]);

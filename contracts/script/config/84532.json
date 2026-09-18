@@ -9,6 +9,6 @@
   "identityRegistry": "0x8004A818BFB912233c491871b3d84c89A494BD9e",
   "maxStaleness": 86400,
   "slippageBps": 3000,
-  "minActivityUsdc": 1000000,
-  "_comment": "Base Sepolia. sequencerFeed is the zero address: Base Sepolia has no L2 sequencer-uptime feed, so RevenueEscrow skips that check. maxStaleness 86400s (vs 3600s on mainnet) because the Sepolia ETH/USD feed heartbeats far less often. slippageBps 3000 (30%, vs 100 on mainnet) because the Sepolia WETH/USDC pool the escrow swaps through is thin -- a tight bound would make ordinary harvests revert on normal slippage. All eight addresses (usdc, weth, ccaFactory, router, ethUsdFeed, reputationRegistry, identityRegistry, feesManager-per-loan) were checked non-empty with `cast code --rpc-url $BASE_SEPOLIA_RPC_URL` before this file was written; see contracts/README.md for the evidence table."
+  "minActivityUsdc": 100000,
+  "_comment": "Base Sepolia. sequencerFeed is the zero address: Base Sepolia has no L2 sequencer-uptime feed, so RevenueEscrow skips that check. maxStaleness 86400s (vs 3600s on mainnet) because the Sepolia ETH/USD feed heartbeats far less often. slippageBps 3000 (30%, vs 100 on mainnet) because the Sepolia WETH/USDC pool the escrow swaps through is thin -- a tight bound would make ordinary harvests revert on normal slippage. minActivityUsdc 100_000 (=$0.10, matching mainnet) so a small loan isn't falsely defaultable while it is still paying -- a $1 floor is 10%+ of a small note's cap. All eight addresses (usdc, weth, ccaFactory, router, ethUsdFeed, reputationRegistry, identityRegistry, feesManager-per-loan) were checked non-empty with `cast code --rpc-url $BASE_SEPOLIA_RPC_URL` before this file was written; see contracts/README.md for the evidence table."
 }
