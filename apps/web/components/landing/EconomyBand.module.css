@@ -86,6 +86,15 @@
   color: var(--paper);
 }
 
+.noHistory {
+  align-self: end;
+  padding-top: 12px;
+  border-top: 1px solid var(--reverse-hair);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--reverse-85);
+}
+
 @media (max-width: 860px) {
   .band {
     padding: 28px var(--pad) 48px;

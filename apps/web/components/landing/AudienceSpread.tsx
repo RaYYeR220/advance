@@ -14,13 +14,17 @@ export interface AudienceSpreadProps {
   audiences: LandingData["audiences"];
 }
 
-/** Facing pages for the two sides of a loan: agents applying on the left, lenders bidding on the right. */
+/** Facing pages for the two sides of a loan: agents applying on the left, lenders bidding on the right.
+ * No auction is open when `auction.blocks` is 0 — the clearing-price chart divides by that
+ * count, so this prints a plain "nothing open" panel instead of a chart built from zeros. */
 export function AudienceSpread({ audiences }: AudienceSpreadProps) {
   const { quote, memo, auction } = audiences;
   const token = shortAddress(audiences.token);
   const series = addressPrefix(audiences.token);
   const limit = formatUsd(quote.dailyLimitUsd);
-  const clearingCents = clearingPriceAt(auction.steps, auction.blocks - 1);
+  const hasAuction = auction.blocks > 0;
+  const hasMemo = memo.formulaLimitUsd > 0 || quote.dailyLimitUsd > 0;
+  const clearingCents = hasAuction ? clearingPriceAt(auction.steps, auction.blocks - 1) : null;
 
   const tabs: ApplyTab[] = [
     {
@@ -93,13 +97,20 @@ export function AudienceSpread({ audiences }: AudienceSpreadProps) {
           skill.
         </p>
         <ApplyTabs label="Ways to apply" tabs={tabs} />
-        <PullQuote
-          variant="memo"
-          attribution={`From the underwriting memo for ${series}. A memo can tighten the terms a formula allows. It can never loosen them.`}
-        >
-          Fees have grown four weeks in a row, mostly from organic volume. One pool carries {memo.largestPoolSharePct}% of
-          it, so the daily draw limit is {limit} rather than {formatUsd(memo.formulaLimitUsd)}.
-        </PullQuote>
+        {hasMemo ? (
+          <PullQuote
+            variant="memo"
+            attribution={`From the underwriting memo for ${series}. A memo can tighten the terms a formula allows. It can never loosen them.`}
+          >
+            Fees have grown four weeks in a row, mostly from organic volume. One pool carries {memo.largestPoolSharePct}%
+            of it, so the daily draw limit is {limit} rather than {formatUsd(memo.formulaLimitUsd)}.
+          </PullQuote>
+        ) : (
+          <PullQuote variant="memo" attribution="Every approval gets one. A memo can only tighten a formula's terms, never loosen them.">
+            The written memo reads concentration, wash trading and age the same formula does, then decides whether to
+            trust its number.
+          </PullQuote>
+        )}
         <div className={styles.cta}>
           <ButtonLink href="/underwrite" prefetch={false}>Underwrite an agent</ButtonLink>
           <TextLink href="#docs">Read the docs</TextLink>
@@ -109,44 +120,53 @@ export function AudienceSpread({ audiences }: AudienceSpreadProps) {
       <div className="pg pg-r" id="auctions">
         <RunningHead page={47} title="For lenders" side="right" />
         <h2 className={cx("h2-l", styles.title)}>
-          Buy a dollar of repayment for {clearingCents} cents
+          {hasAuction ? `Buy a dollar of repayment for ${clearingCents} cents` : "No auction open right now"}
         </h2>
         <p className={cx("prose", styles.intro)}>
           Bid USDC in the auction. Each sweep sends fees to noteholders, and you claim your share whenever you like. If
           the agent stops earning, the note stops paying and the default goes on its public record.
         </p>
-        <AuctionChart
-          startBlock={auction.startBlock}
-          blocks={auction.blocks}
-          floorCents={auction.floorCents}
-          steps={auction.steps}
-          bid={auction.bid}
-          caption={`Auction for notes of agent ${series}. One price per block, and everyone who clears pays the same.`}
-        />
-        <div className={styles.coupon} id="portfolio">
-          <svg className={styles.scissors} viewBox="0 0 30 24" aria-hidden="true">
-            <circle cx="6" cy="6" r="4" fill="none" stroke={INK.forest} strokeWidth="1.6" />
-            <circle cx="6" cy="18" r="4" fill="none" stroke={INK.forest} strokeWidth="1.6" />
-            <path d="M9 8 L28 18 M9 16 L28 6" stroke={INK.forest} strokeWidth="1.6" />
-          </svg>
-          <h3>Your bid slip</h3>
-          <dl>
-            <dt>Series</dt>
-            <dd>{series}</dd>
-            <dt>Max price</dt>
-            <dd>{formatCents(auction.bid.maxPriceCents)}</dd>
-            <dt>Budget</dt>
-            <dd>{formatInteger(auction.bid.budgetUsdc)} USDC</dd>
-            <dt>Filled</dt>
-            <dd>
-              {formatInteger(auction.bid.filledNotes)} notes at {formatCents(clearingCents)}
-            </dd>
-          </dl>
-          <p className={styles.claim}>
-            <b>{formatUsd(auction.bid.claimableUsd, { cents: true })}</b>
-            <span>ready to claim</span>
+        {hasAuction && clearingCents !== null ? (
+          <>
+            <AuctionChart
+              startBlock={auction.startBlock}
+              blocks={auction.blocks}
+              floorCents={auction.floorCents}
+              steps={auction.steps}
+              bid={auction.bid}
+              caption={`Auction for notes of agent ${series}. One price per block, and everyone who clears pays the same.`}
+            />
+            <div className={styles.coupon} id="portfolio">
+              <svg className={styles.scissors} viewBox="0 0 30 24" aria-hidden="true">
+                <circle cx="6" cy="6" r="4" fill="none" stroke={INK.forest} strokeWidth="1.6" />
+                <circle cx="6" cy="18" r="4" fill="none" stroke={INK.forest} strokeWidth="1.6" />
+                <path d="M9 8 L28 18 M9 16 L28 6" stroke={INK.forest} strokeWidth="1.6" />
+              </svg>
+              <h3>Your bid slip</h3>
+              <dl>
+                <dt>Series</dt>
+                <dd>{series}</dd>
+                <dt>Max price</dt>
+                <dd>{formatCents(auction.bid.maxPriceCents)}</dd>
+                <dt>Budget</dt>
+                <dd>{formatInteger(auction.bid.budgetUsdc)} USDC</dd>
+                <dt>Filled</dt>
+                <dd>
+                  {formatInteger(auction.bid.filledNotes)} notes at {formatCents(clearingCents)}
+                </dd>
+              </dl>
+              <p className={styles.claim}>
+                <b>{formatUsd(auction.bid.claimableUsd, { cents: true })}</b>
+                <span>ready to claim</span>
+              </p>
+            </div>
+          </>
+        ) : (
+          <p className={cx("prose", styles.intro)} id="portfolio">
+            No loan has opened an auction yet. The first note to sell prints its clearing-price chart and a bid slip
+            right here.
           </p>
-        </div>
+        )}
         <p className={styles.cta}>
           <TextLink href="#auctions">Browse open auctions</TextLink>
         </p>

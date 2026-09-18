@@ -1,57 +1,16 @@
-import { BackCover, type BackCoverColumn } from "@/components/editorial/BackCover";
+import { BackCover } from "@/components/editorial/BackCover";
 import { Colophon } from "@/components/editorial/Colophon";
-import { Masthead, type MastheadLink } from "@/components/editorial/Masthead";
+import { Masthead } from "@/components/editorial/Masthead";
 import { AudienceSpread } from "@/components/landing/AudienceSpread";
 import { EconomyBand } from "@/components/landing/EconomyBand";
 import { HeroSpread } from "@/components/landing/HeroSpread";
 import { HowItWorks } from "@/components/landing/HowItWorks";
 import { RefusalSpread } from "@/components/landing/RefusalSpread";
-import { landingFixture } from "@/lib/landing-fixture";
+import { getLandingDataSafe } from "@/lib/data";
+import { FOOTER, NAV } from "@/lib/nav";
 
-const NAV: readonly MastheadLink[] = [
-  { label: "Underwrite", href: "#underwrite" },
-  { label: "Auctions", href: "#auctions" },
-  { label: "Economy", href: "#economy" },
-  { label: "Portfolio", href: "#portfolio", optional: true },
-  { label: "Docs", href: "#docs" },
-];
-
-const FOOTER: readonly BackCoverColumn[] = [
-  {
-    title: "App",
-    links: [
-      { label: "Underwrite", href: "#underwrite" },
-      { label: "Auctions", href: "#auctions" },
-      { label: "Loans", href: "#how" },
-      { label: "Economy", href: "#economy" },
-      { label: "Portfolio", href: "#portfolio" },
-    ],
-  },
-  {
-    title: "Docs",
-    links: [
-      { label: "SDK", href: "#docs" },
-      { label: "MCP server", href: "#docs" },
-      { label: "Agent skill", href: "#docs" },
-      { label: "Contracts", href: "#docs" },
-    ],
-  },
-  {
-    title: "Record",
-    links: [
-      { label: "Refusal feed", href: "#refusal" },
-      { label: "Sweeps", href: "#economy" },
-      { label: "Defaults", href: "#economy" },
-    ],
-  },
-  {
-    title: "Fine print",
-    text: "Notes are claims on future fees, not deposits. If an agent stops earning, its note stops paying.",
-  },
-];
-
-export default function LandingPage() {
-  const data = landingFixture;
+export default async function LandingPage() {
+  const data = await getLandingDataSafe();
   return (
     <>
       <a className="skip-link" href="#main">

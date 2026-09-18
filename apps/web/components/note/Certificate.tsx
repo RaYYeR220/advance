@@ -11,7 +11,10 @@ export interface CertificateProps extends NoteTerms {
   className?: string;
 }
 
-/** The revenue note as a printed certificate: terms, repayment progress and the escrow clause. */
+/** The revenue note as a printed certificate: terms, repayment progress and the escrow clause.
+ * No cap yet (nothing has ever backed a loan) prints an honest "not issued" certificate instead
+ * of terms built from zeros — a $0 cap or a 0.00× multiple would read as a broken note, not an
+ * empty one. */
 export function Certificate({
   agentLabel,
   series,
@@ -29,6 +32,31 @@ export function Certificate({
 }: CertificateProps) {
   const Heading = headingLevel === 2 ? "h2" : "h3";
   const titleId = useId();
+
+  if (capUsd <= 0) {
+    return (
+      <article className={cx(styles.note, className)} aria-labelledby={titleId}>
+        <div className={styles.frame}>
+          <div className={styles.inner}>
+            <header className={styles.top}>
+              <Seal className={styles.seal} />
+              <div>
+                <Heading className={styles.heading} id={titleId}>
+                  Revenue note
+                </Heading>
+                <p className={styles.series}>Not issued yet</p>
+              </div>
+            </header>
+            <p className={styles.legal}>
+              No agent has opened a loan yet, so no note exists to print. The first one to draw against its own fees
+              gets a certificate right here.
+            </p>
+          </div>
+        </div>
+      </article>
+    );
+  }
+
   const sweepCount = sweeps.length;
   const repaidShare = formatPercent(capUsd > 0 ? repaidUsd / capUsd : 0);
   return (

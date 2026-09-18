@@ -278,7 +278,7 @@ function monthYear(nowSeconds: number): string {
 /** An honest, all-zero `LandingData` for "the hub has never opened a loan yet" — every number
  * in it is real (there is in fact nothing to show), not a placeholder standing in for missing
  * data. Components decide how to phrase that state; this just refuses to invent a fake agent. */
-function emptyLandingData(chainId: SupportedChainId, nowSeconds: number, asOfBlock: bigint): LandingData {
+export function emptyLandingData(chainId: SupportedChainId, nowSeconds: number, asOfBlock: bigint): LandingData {
   return {
     chainId,
     issue: { number: "00", date: monthYear(nowSeconds) },
@@ -471,4 +471,50 @@ export async function getLandingData(deps?: DataDeps): Promise<LandingData> {
  * multiple) never throws on a live read. */
 function roundToTick(priceQ96: bigint): bigint {
   return (priceQ96 / TICK_SPACING_Q96) * TICK_SPACING_Q96;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Safe landing read — never lets a missing/bad deployment config crash the page
+// ---------------------------------------------------------------------------------------------
+
+/** Mirrors `loadWebEnv`'s own chain-id default, without requiring `ADVANCE_HUB`/
+ * `UNDERWRITER_API_URL` to be set — used only once `resolveWebEnv` has already thrown, so
+ * there's still a sensible chain to attribute the empty state to. */
+function fallbackChainId(): SupportedChainId {
+  return Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "84532") === 8453 ? 8453 : 84532;
+}
+
+function safeChainId(deps?: DataDeps): SupportedChainId {
+  try {
+    return resolveWebEnv(deps).chainId;
+  } catch {
+    return fallbackChainId();
+  }
+}
+
+/**
+ * `getLandingData`, but never throws: before any contract is deployed (`ADVANCE_HUB` unset)
+ * or while the chain/underwriter is briefly unreachable, this falls back to the same honest,
+ * all-zero shape `getLandingData` itself already returns for "no loans yet" — the landing
+ * page always has something real (if empty) to render, never a crash. A best-effort block
+ * number is still attempted (never a live call in a test that injects `getBlockNumber`);
+ * `0n` only if that also fails.
+ */
+export async function getLandingDataSafe(deps?: DataDeps): Promise<LandingData> {
+  try {
+    return await getLandingData(deps);
+  } catch {
+    const chainId = safeChainId(deps);
+    const nowSeconds = resolveNowSeconds(deps);
+    let asOfBlock: bigint;
+    try {
+      // `resolveBlockNumber` isn't itself `async` — a bad config throws synchronously here,
+      // not as a rejection, so `.catch(...)` alone wouldn't see it. `await` inside `try` covers
+      // both.
+      asOfBlock = await resolveBlockNumber(deps);
+    } catch {
+      asOfBlock = 0n;
+    }
+    return emptyLandingData(chainId, nowSeconds, asOfBlock);
+  }
 }

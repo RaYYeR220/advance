@@ -14,9 +14,10 @@ const dashed = { stroke: INK.forest, strokeDasharray: "2 1.6" } as const;
 
 /** The loan lifecycle as a five-panel gatefold, from underwriting to the final sweep. */
 export function HowItWorks({ lifecycle }: HowItWorksProps) {
-  const floor = formatCents(lifecycle.floorCents);
-  const clearing = formatCents(lifecycle.clearingPriceCents);
-  const maxCap = formatMultiple(100 / lifecycle.floorCents);
+  const hasTerms = lifecycle.floorCents > 0;
+  const floor = hasTerms ? formatCents(lifecycle.floorCents) : "a";
+  const clearing = hasTerms ? formatCents(lifecycle.clearingPriceCents) : "—";
+  const maxCap = hasTerms ? formatMultiple(100 / lifecycle.floorCents) : null;
   const dailyLimit = formatUsd(lifecycle.dailyLimitUsd);
 
   const panels: FoldOutPanel[] = [
@@ -47,7 +48,9 @@ export function HowItWorks({ lifecycle }: HowItWorksProps) {
     },
     {
       scene: "auction",
-      sceneLabel: `A stepped clearing price rises block by block above an ${floor} floor, with filled bids above it`,
+      sceneLabel: hasTerms
+        ? `A stepped clearing price rises block by block above an ${floor} floor, with filled bids above it`
+        : "A stepped clearing price rises block by block above a floor, with filled bids above it",
       annotations: (
         <>
           <line x1="6" y1="64" x2="94" y2="64" strokeWidth=".9" {...dashed} />
@@ -63,7 +66,9 @@ export function HowItWorks({ lifecycle }: HowItWorksProps) {
         </>
       ),
       title: "Auction",
-      body: `Notes sell in a Uniswap continuous clearing auction. One note is $1 of repayment, and the clearing price sets the principal. The ${floor} floor keeps the cap at ${maxCap}× or less.`,
+      body: maxCap
+        ? `Notes sell in a Uniswap continuous clearing auction. One note is $1 of repayment, and the clearing price sets the principal. The ${floor} floor keeps the cap at ${maxCap}× or less.`
+        : "Notes sell in a Uniswap continuous clearing auction. One note is $1 of repayment, and the clearing price sets the principal. A floor, set in the term sheet, keeps the cap bounded no matter how high the auction runs.",
       call: "bid(maxPrice, budget)",
     },
     {

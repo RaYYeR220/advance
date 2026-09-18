@@ -16,7 +16,7 @@ import {
   type Likeness,
 } from "@/components/halftone/portrait";
 import { INK, dots, duotoneSvg } from "@/components/halftone/screen";
-import { landingFixture } from "@/lib/landing-fixture";
+import { landingFixture } from "./landing-fixture";
 
 const seedA = "0x3f2c5a0e1b7d44c8a9b2e6f01d3c7a8b5e4d9e11";
 const seedB = "0x9b07e3c1d5a8f2b6049e7c3a1d8b5f2e6c9a41d0";

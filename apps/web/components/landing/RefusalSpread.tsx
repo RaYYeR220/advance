@@ -1,3 +1,4 @@
+import { zeroAddress } from "viem";
 import { StruckPrompt, TornReceipt } from "@/components/editorial/Exhibit";
 import { RunningHead } from "@/components/editorial/Folio";
 import { PullQuote } from "@/components/editorial/PullQuote";
@@ -19,8 +20,36 @@ export interface RefusalSpreadProps {
   chainId: number;
 }
 
-/** A hijacked agent's drain attempt, the instruction it followed and the revert that stopped it. */
+/** A hijacked agent's drain attempt, the instruction it followed and the revert that stopped it.
+ * No refusal has been recorded yet prints the mechanism instead of a specific instance — never
+ * a receipt built from a zeroed-out transaction. */
 export function RefusalSpread({ refusal, chainId }: RefusalSpreadProps) {
+  const recorded = refusal.agent.toLowerCase() !== zeroAddress;
+
+  if (!recorded) {
+    return (
+      <section className={cx("sec spread", styles.refusal)} id="refusal" aria-labelledby="ref-title">
+        <div className="gutter" aria-hidden="true" />
+        <div className="pg pg-l">
+          <RunningHead page={44} title="The refusal" />
+          <h2 className={cx("h2-xl", styles.title)} id="ref-title">
+            Two locks, waiting
+          </h2>
+          <p className={cx("sec-deck", styles.deck)}>
+            No agent has tried to overdraw yet. When one does, the attempt is exhibited right here — the instruction
+            it followed and the transaction that reverted.
+          </p>
+        </div>
+        <div className="pg pg-r">
+          <RunningHead page={45} title="Evidence" side="right" />
+          <PullQuote attribution="The card's signing policy refuses payees off the allowlist. The CreditLine contract reverts any draw over the daily limit.">
+            Both locks sit below the model. No prompt can talk its way past either.
+          </PullQuote>
+        </div>
+      </section>
+    );
+  }
+
   const { receipt, tally } = refusal;
   const agent = addressPrefix(refusal.agent);
   const payee = shortAddress(refusal.payee);

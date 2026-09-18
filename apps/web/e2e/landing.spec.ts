@@ -2,8 +2,9 @@ import { expect, test, type Page } from "@playwright/test";
 
 const SCREENSHOT_DIR = "e2e/__screenshots__";
 
-async function waitForPrint(page: Page) {
-  await expect(page.locator("[data-printed]")).toHaveCount(2);
+/** Waits for every screened image (the fold-out scenes; no portraits print when the page has
+ * no funded agent) to finish loading, so a screenshot never catches a half-drawn figure. */
+async function waitForImages(page: Page) {
   await page.waitForFunction(() =>
     [...document.querySelectorAll("img")].every((img) => img.complete && img.naturalWidth > 0),
   );
@@ -22,7 +23,10 @@ async function readThrough(page: Page) {
   await page.evaluate(() => window.scrollTo(0, 0));
 }
 
-test.describe("landing page", () => {
+// This project's server runs with no `ADVANCE_HUB` configured — the real pre-launch state, and
+// exactly the case `getLandingDataSafe` must degrade gracefully from: no crash, an honest "no
+// loans yet" page, still laid out and still readable.
+test.describe("landing page, unconfigured (no loans yet)", () => {
   test("renders every section without console errors", async ({ page }) => {
     const problems: string[] = [];
     page.on("pageerror", (error) => problems.push(error.message));
@@ -35,17 +39,17 @@ test.describe("landing page", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Credit for agents that earn.");
     for (const name of [
       "How an advance moves from fee stream to noteholder",
-      "The drain that bounced",
+      "Two locks, waiting",
       "Your agent can apply on its own",
-      "Buy a dollar of repayment for 84 cents",
+      "No auction open right now",
       "Built on",
     ]) {
       await expect(page.getByRole("heading", { level: 2, name })).toBeVisible();
     }
-    await expect(page.getByRole("article", { name: /Revenue note/ })).toContainText("$241.80");
-    await expect(page.getByRole("img", { name: "65 percent of the cap repaid over 23 sweeps" })).toBeVisible();
-    await waitForPrint(page);
-    await expect(page.locator("footer").getByText("Advance, issue 03.")).toBeVisible();
+    await expect(page.getByRole("article", { name: /Revenue note/ })).toContainText("Not issued yet");
+    await expect(page.getByText("No loan open yet")).toBeVisible();
+    await expect(page.getByText("Advance hasn't funded its first agent yet")).toBeVisible();
+    await waitForImages(page);
     expect(problems).toEqual([]);
   });
 
@@ -60,16 +64,25 @@ test.describe("landing page", () => {
 
   test("never scrolls sideways", async ({ page }) => {
     await page.goto("/");
-    await waitForPrint(page);
+    await waitForImages(page);
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
     expect(overflow).toBeLessThanOrEqual(0);
   });
 
+  test("never prints a fabricated non-zero figure for terms nothing has set yet", async ({ page }) => {
+    await page.goto("/");
+    await waitForImages(page);
+    // The certificate and hero panel must not claim a specific cap/multiple/price that no loan
+    // has actually set.
+    await expect(page.getByText("0.00×")).toHaveCount(0);
+    await expect(page.getByText("$0.00", { exact: false })).toHaveCount(0);
+  });
+
   test("labels meaningful figures and hides decorative ones", async ({ page }) => {
     await page.goto("/");
-    await waitForPrint(page);
+    await waitForImages(page);
     const unlabelled = await page.evaluate(() =>
       [...document.querySelectorAll("svg")]
         .filter((svg) => !svg.closest("[aria-hidden='true']"))
@@ -81,8 +94,6 @@ test.describe("landing page", () => {
       [...document.querySelectorAll("img")].filter((img) => img.alt !== "").map((img) => img.src),
     );
     expect(imgsWithText).toEqual([]);
-    await expect(page.getByRole("img", { name: /Halftone portrait of agent 0x3f2c/ })).toBeVisible();
-    await expect(page.getByRole("img", { name: /Halftone portrait of agent 0x9b07/ })).toBeAttached();
   });
 
   test("nests headings without skipping a level", async ({ page }) => {
@@ -145,33 +156,11 @@ test.describe("landing page", () => {
     await expect(sdk).toHaveAttribute("tabindex", "-1");
   });
 
-  test("strikes the injected instruction once it scrolls into view", async ({ page }) => {
-    await page.goto("/");
-    const exhibit = page.locator("figure", { hasText: "Exhibit A. The instruction it found" });
-    await expect(exhibit).not.toHaveAttribute("data-struck", "true");
-    await exhibit.scrollIntoViewIfNeeded();
-    await page.evaluate(() => window.scrollBy(0, 200));
-    await expect(exhibit).toHaveAttribute("data-struck", "true");
-  });
-
-  test("opens a loupe over the hero portrait on hover", async ({ page, isMobile }) => {
-    test.skip(isMobile, "touch screens have no hover");
-    await page.goto("/");
-    await waitForPrint(page);
-    const portrait = page.getByRole("img", { name: /Halftone portrait of agent 0x3f2c/ });
-    const box = await portrait.boundingBox();
-    expect(box).not.toBeNull();
-    await page.mouse.move((box?.x ?? 0) + (box?.width ?? 0) * 0.6, (box?.y ?? 0) + (box?.height ?? 0) * 0.5);
-    await expect
-      .poll(() => portrait.evaluate((el) => parseFloat(getComputedStyle(el).getPropertyValue("--r")) || 0))
-      .toBeGreaterThan(100);
-  });
-
   test("captures a full-page screenshot", async ({ page }, info) => {
     await page.goto("/");
-    await waitForPrint(page);
+    await waitForImages(page);
     await readThrough(page);
-    await page.waitForTimeout(2200);
+    await page.waitForTimeout(600);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/landing-${info.project.name}.png`, fullPage: true });
   });
 });
@@ -179,11 +168,9 @@ test.describe("landing page", () => {
 test.describe("with reduced motion", () => {
   test.use({ colorScheme: "light", reducedMotion: "reduce" });
 
-  test("shows every figure in its final state without animating", async ({ page }) => {
+  test("respects prefers-reduced-motion", async ({ page }) => {
     await page.goto("/");
-    await waitForPrint(page);
-    const exhibit = page.locator("figure", { hasText: "Exhibit A. The instruction it found" });
-    await expect(exhibit).toHaveAttribute("data-struck", "true");
+    await waitForImages(page);
     const transitions = await page.evaluate(() =>
       [...document.querySelectorAll("img, span, svg, a")]
         .map((el) => getComputedStyle(el).transitionDuration)

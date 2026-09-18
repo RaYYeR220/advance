@@ -5,6 +5,7 @@ import {
   getAuction,
   getEconomy,
   getLandingData,
+  getLandingDataSafe,
   getLoan,
   getLoanEvidence,
   getLoans,
@@ -349,5 +350,78 @@ describe("getLandingData", () => {
     await getLandingData(d);
     await getLandingData(d);
     expect(client.loans).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("getLandingDataSafe", () => {
+  it("passes through getLandingData's own result when nothing throws", async () => {
+    const client = fakeClient({ loans: vi.fn(async () => []) });
+    const d = deps({ client, events: fakeEvents([]) });
+    const data = await getLandingDataSafe(d);
+    expect(data.hero.agent).toBe("0x0000000000000000000000000000000000000000");
+    expect(data.economy.fundedAgents).toBe(0);
+  });
+
+  it("falls back to an honest empty state, never throwing, when the read fails", async () => {
+    const client = fakeClient({
+      loans: vi.fn(async () => {
+        throw new Error("rpc unreachable");
+      }),
+    });
+    const d = deps({ client, events: fakeEvents([]), getBlockNumber: async () => 999n });
+    const data = await getLandingDataSafe(d);
+    expect(data.hero.agent).toBe("0x0000000000000000000000000000000000000000");
+    expect(data.hero.note.sweeps).toEqual([]);
+    expect(data.hero.note.latestBlock).toBe(999);
+    expect(data.economy.fundedAgents).toBe(0);
+    expect(data.chainId).toBe(84532);
+  });
+
+  it("uses the injected webEnv's chainId in the fallback, without a live RPC call", async () => {
+    const client = fakeClient({
+      loans: vi.fn(async () => {
+        throw new Error("boom");
+      }),
+    });
+    const d = deps({
+      client,
+      events: fakeEvents([]),
+      webEnv: { ...BASE_DEPS.webEnv!, chainId: 8453 },
+      getBlockNumber: async () => 42n,
+    });
+    const data = await getLandingDataSafe(d);
+    expect(data.chainId).toBe(8453);
+    expect(data.hero.note.latestBlock).toBe(42);
+  });
+
+  it("never throws when neither webEnv nor getBlockNumber is injected (the real unconfigured-deployment path)", async () => {
+    const client = fakeClient({
+      loans: vi.fn(async () => {
+        throw new Error("boom");
+      }),
+    });
+    // No `webEnv`, no `getBlockNumber` — forces the fallback through the *real* `loadWebEnv()`
+    // reading `process.env`, which has no `ADVANCE_HUB` in this test run. Regression test for a
+    // bug where that threw synchronously instead of being caught.
+    const data = await getLandingDataSafe({ client, events: fakeEvents([]), now: BASE_DEPS.now });
+    expect(data.hero.agent).toBe("0x0000000000000000000000000000000000000000");
+    expect(data.hero.note.latestBlock).toBe(0);
+  });
+
+  it("falls back to block 0 when even the best-effort block read fails", async () => {
+    const client = fakeClient({
+      loans: vi.fn(async () => {
+        throw new Error("boom");
+      }),
+    });
+    const d = deps({
+      client,
+      events: fakeEvents([]),
+      getBlockNumber: async () => {
+        throw new Error("rpc down too");
+      },
+    });
+    const data = await getLandingDataSafe(d);
+    expect(data.hero.note.latestBlock).toBe(0);
   });
 });

@@ -9,7 +9,7 @@ import {
   weeklySvg,
 } from "@/components/halftone/charts";
 import { SCENE_IDS, sceneCell, sceneSvg } from "@/components/halftone/scenes";
-import { landingFixture } from "@/lib/landing-fixture";
+import { landingFixture } from "./landing-fixture";
 
 const { auction } = landingFixture.audiences;
 

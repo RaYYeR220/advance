@@ -94,6 +94,34 @@
   color: var(--forest);
 }
 
+.empty {
+  position: absolute;
+  inset: 0;
+  bottom: var(--hero-caption);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 14px;
+  max-width: 32em;
+  padding: 0 60px 0 40px;
+}
+
+.emptyKicker {
+  font-size: var(--fs-meta);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ochre-ink);
+}
+
+.emptyBody {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: var(--fs-deck);
+  line-height: var(--lh-deck);
+}
+
 .notePlacement {
   position: absolute;
   z-index: 5;
@@ -125,6 +153,14 @@
     order: 3;
     position: relative;
     inset: auto;
+    margin-top: 34px;
+  }
+
+  .empty {
+    order: 3;
+    position: relative;
+    inset: auto;
+    padding: 0 var(--pad);
     margin-top: 34px;
   }
 

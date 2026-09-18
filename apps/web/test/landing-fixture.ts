@@ -1,9 +1,10 @@
-import { BASE_MAINNET } from "./explorer";
-import type { LandingData } from "./landing-data";
+import { BASE_MAINNET } from "@/lib/explorer";
+import type { LandingData } from "@/lib/landing-data";
 
 /**
- * Sample figures for the landing page. Every section reads from this one
- * object, so swapping it for indexed chain data changes no component code.
+ * A fully-populated `LandingData` sample, used only by tests that need realistic figures for
+ * a component (`charts.test.ts`, `portrait.test.ts`) — the landing page itself reads live data
+ * via `getLandingDataSafe()` (`lib/data.ts`), never this fixture.
  */
 export const landingFixture: LandingData = {
   chainId: BASE_MAINNET,
