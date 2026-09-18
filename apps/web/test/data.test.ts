@@ -11,6 +11,7 @@ import {
   getLoans,
   getScore,
   resetDataLayerForTests,
+  underwriterApiBase,
   type DataClient,
   type DataDeps,
 } from "@/lib/data";
@@ -423,5 +424,11 @@ describe("getLandingDataSafe", () => {
     });
     const data = await getLandingDataSafe(d);
     expect(data.hero.note.latestBlock).toBe(0);
+  });
+});
+
+describe("underwriterApiBase", () => {
+  it("returns the configured underwriter API URL", () => {
+    expect(underwriterApiBase(deps())).toBe("https://underwriter.example.com");
   });
 });

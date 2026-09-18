@@ -117,3 +117,10 @@ export function isAddress(value: string): value is `0x${string}` {
 export function isTxHash(value: string): value is `0x${string}` {
   return HEX_HASH.test(value);
 }
+
+/** Money already expressed as micro-USD (1e6 == $1) — the underwriting engine's unit for
+ * every dollar figure in an evidence bundle (and USDC-wei, which happens to share the same
+ * scale) — converted to a plain USD number ready for `formatUsd`. */
+export function microUsdToUsd(value: bigint): number {
+  return Number(value) / 1_000_000;
+}

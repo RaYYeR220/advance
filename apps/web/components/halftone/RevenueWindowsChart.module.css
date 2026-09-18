@@ -1,0 +1,38 @@
+.chart {
+  margin-top: 20px;
+}
+
+.chart svg {
+  display: block;
+  width: 100%;
+  max-width: 480px;
+  height: auto;
+  overflow: visible;
+}
+
+.chart svg text {
+  font-family: var(--text);
+  font-size: 13px;
+  fill: var(--forest);
+}
+
+.chart figcaption {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--forest-80);
+}
+
+.chart .compact {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .chart .wide {
+    display: none;
+  }
+
+  .chart .compact {
+    display: block;
+    max-width: 340px;
+  }
+}

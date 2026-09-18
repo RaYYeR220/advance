@@ -518,3 +518,13 @@ export async function getLandingDataSafe(deps?: DataDeps): Promise<LandingData> 
     return emptyLandingData(chainId, nowSeconds, asOfBlock);
   }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Underwriter API base — for linking to `/v1/evidence/:hash` from a score result
+// ---------------------------------------------------------------------------------------------
+
+/** The underwriter API's base URL (no trailing slash) — used to link straight to
+ * `/v1/evidence/:hash` for a score's evidence bundle, the same host `getScore` itself reads. */
+export function underwriterApiBase(deps?: DataDeps): string {
+  return resolveWebEnv(deps).underwriterApiUrl;
+}

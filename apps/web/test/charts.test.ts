@@ -4,6 +4,7 @@ import {
   capBarSvg,
   clearingPriceAt,
   controlStripModel,
+  revenueWindowsModel,
   sweepTicks,
   weeklyGeometry,
   weeklySvg,
@@ -89,6 +90,39 @@ describe("control strip", () => {
       expect(strip.patches.filter((p) => p.ink === "forest")).toHaveLength(10);
     }
     expect(controlStripModel(false).registration).toEqual([26, 1318]);
+  });
+});
+
+describe("revenue windows", () => {
+  const windows = [
+    { label: "1 day", usd: 5 },
+    { label: "7 days", usd: 40 },
+    { label: "30 days", usd: 150 },
+  ];
+
+  it("scales every bar to the largest window", () => {
+    const m = revenueWindowsModel(false, windows);
+    expect(m.max).toBe(150);
+    const tallest = m.bars.find((b) => b.label === "30 days")!;
+    expect(tallest.height).toBeCloseTo(m.y1 - m.y0, 9);
+    const shortest = m.bars.find((b) => b.label === "1 day")!;
+    expect(shortest.height).toBeLessThan(tallest.height);
+  });
+
+  it("never divides by zero when every window is empty", () => {
+    const m = revenueWindowsModel(false, [
+      { label: "1 day", usd: 0 },
+      { label: "7 days", usd: 0 },
+      { label: "30 days", usd: 0 },
+    ]);
+    expect(m.bars.every((b) => Number.isFinite(b.height))).toBe(true);
+    expect(m.bars.every((b) => b.height === 0)).toBe(true);
+  });
+
+  it("uses a narrower canvas on single-column layouts", () => {
+    const wide = revenueWindowsModel(false, windows);
+    const compact = revenueWindowsModel(true, windows);
+    expect(compact.width).toBeLessThan(wide.width);
   });
 });
 

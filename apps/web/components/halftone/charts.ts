@@ -163,6 +163,53 @@ export function auctionChartModel({ compact, blocks, floorCents, steps, bid }: A
   };
 }
 
+/* ---------- revenue windows ---------- */
+
+export interface RevenueWindowBar {
+  label: string;
+  usd: number;
+}
+
+export interface RevenueWindowsModel {
+  width: number;
+  height: number;
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+  max: number;
+  bars: { x: number; y: number; width: number; height: number; usd: number; label: string }[];
+}
+
+/** Three ascending bars (1d/7d/30d creator revenue) on a fixed viewBox, compact or wide —
+ * pure, so it renders identically on server and client without a measured container. */
+export function revenueWindowsModel(compact: boolean, windows: readonly RevenueWindowBar[]): RevenueWindowsModel {
+  const width = compact ? 340 : 480;
+  const height = compact ? 220 : 240;
+  const x0 = 44;
+  const x1 = width - 16;
+  const y0 = 24;
+  const y1 = height - 34;
+  const max = Math.max(1, ...windows.map((w) => w.usd));
+  const n = Math.max(1, windows.length);
+  const slot = (x1 - x0) / n;
+  const barWidth = slot * 0.46;
+
+  const bars = windows.map((w, i) => {
+    const h = (w.usd / max) * (y1 - y0);
+    return {
+      x: x0 + i * slot + (slot - barWidth) / 2,
+      y: y1 - h,
+      width: barWidth,
+      height: h,
+      usd: w.usd,
+      label: w.label,
+    };
+  });
+
+  return { width, height, x0, x1, y0, y1, max, bars };
+}
+
 /* ---------- colophon control strip ---------- */
 
 export interface StripPatch {

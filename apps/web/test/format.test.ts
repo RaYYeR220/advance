@@ -8,6 +8,7 @@ import {
   formatPercent,
   formatUsd,
   formatUsdc,
+  microUsdToUsd,
   shortAddress,
   shortHash,
 } from "@/lib/format";
@@ -128,5 +129,17 @@ describe("addresses and hashes", () => {
     expect(() => shortAddress("0x123")).toThrow(TypeError);
     expect(() => shortAddress("3f2c5a0e1b7d44c8a9b2e6f01d3c7a8b5e4d9e11")).toThrow(TypeError);
     expect(() => shortHash("0xzz")).toThrow(TypeError);
+  });
+});
+
+describe("microUsdToUsd", () => {
+  it("converts micro-USD (1e6 == $1) to a plain USD number", () => {
+    expect(microUsdToUsd(55_000_000n)).toBe(55);
+    expect(microUsdToUsd(1_000_000n)).toBe(1);
+    expect(microUsdToUsd(0n)).toBe(0);
+  });
+
+  it("keeps fractional cents", () => {
+    expect(microUsdToUsd(1_234_567n)).toBeCloseTo(1.234567);
   });
 });

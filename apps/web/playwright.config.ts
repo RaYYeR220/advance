@@ -1,7 +1,18 @@
 import { defineConfig } from "@playwright/test";
 
-const port = Number(process.env.E2E_PORT ?? 3107);
-const baseURL = `http://localhost:${port}`;
+const landingPort = Number(process.env.E2E_PORT ?? 3107);
+const underwritePort = Number(process.env.E2E_UNDERWRITE_PORT ?? 3108);
+const fakeApiPort = Number(process.env.E2E_FAKE_API_PORT ?? 3109);
+
+const landingBaseURL = `http://localhost:${landingPort}`;
+const underwriteBaseURL = `http://localhost:${underwritePort}`;
+const fakeApiUrl = `http://localhost:${fakeApiPort}`;
+
+/** A syntactically valid but never-deployed hub address — `/underwrite/[token]` never reads
+ * chain state (`score()` only calls the underwriter API), so this never triggers a live RPC
+ * call; it only satisfies `loadWebEnv`'s "well-formed address" check. */
+const DUMMY_HUB = "0x00000000000000000000000000000000000A11CE";
+
 const chromePath = process.env.CHROME_PATH;
 
 export default defineConfig({
@@ -11,26 +22,58 @@ export default defineConfig({
   workers: 1,
   reporter: [["list"]],
   use: {
-    baseURL,
     channel: chromePath ? undefined : "chrome",
     launchOptions: chromePath ? { executablePath: chromePath } : undefined,
     trace: "retain-on-failure",
   },
   projects: [
     {
-      name: "desktop-1440",
-      use: { viewport: { width: 1440, height: 900 } },
+      name: "landing-1440",
+      testMatch: /landing\.spec\.ts/,
+      use: { baseURL: landingBaseURL, viewport: { width: 1440, height: 900 } },
     },
     {
-      name: "mobile-390",
-      use: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
+      name: "landing-390",
+      testMatch: /landing\.spec\.ts/,
+      use: { baseURL: landingBaseURL, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
+    },
+    {
+      name: "underwrite-1440",
+      testMatch: /underwrite\.spec\.ts/,
+      use: { baseURL: underwriteBaseURL, viewport: { width: 1440, height: 900 } },
+    },
+    {
+      name: "underwrite-390",
+      testMatch: /underwrite\.spec\.ts/,
+      use: { baseURL: underwriteBaseURL, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
     },
   ],
-  webServer: {
-    command: `pnpm run build && pnpm exec next start -p ${port}`,
-    url: baseURL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 300_000,
-    env: { NEXT_TELEMETRY_DISABLED: "1" },
-  },
+  webServer: [
+    {
+      // No ADVANCE_HUB/UNDERWRITER_API_URL: the true "nothing deployed yet" state the landing
+      // page must render honestly, with zero live network calls.
+      command: `pnpm run build && pnpm exec next start -p ${landingPort}`,
+      url: landingBaseURL,
+      reuseExistingServer: !process.env.CI,
+      timeout: 300_000,
+      env: { NEXT_TELEMETRY_DISABLED: "1" },
+    },
+    {
+      command: `node e2e/fixtures/fakeUnderwriter.mjs`,
+      url: `${fakeApiUrl}/health`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
+      env: { PORT: String(fakeApiPort) },
+    },
+    {
+      // Reuses the first server's build output (waits for it, rather than building again) on a
+      // second port, configured with a dummy hub and the fake underwriter above — a fake data
+      // layer for `/underwrite/[token]`'s eligible/deny states, with no live chain involved.
+      command: `node e2e/fixtures/waitForPort.mjs ${landingPort} && node e2e/fixtures/waitForPort.mjs ${fakeApiPort} && pnpm exec next start -p ${underwritePort}`,
+      url: underwriteBaseURL,
+      reuseExistingServer: !process.env.CI,
+      timeout: 300_000,
+      env: { NEXT_TELEMETRY_DISABLED: "1", ADVANCE_HUB: DUMMY_HUB, UNDERWRITER_API_URL: fakeApiUrl },
+    },
+  ],
 });

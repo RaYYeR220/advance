@@ -1,0 +1,53 @@
+.form {
+  margin-top: 32px;
+  max-width: 34em;
+}
+
+.label {
+  display: block;
+  font-size: var(--fs-meta);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.input {
+  flex: 1 1 280px;
+  min-width: 0;
+  min-height: 54px;
+  padding: 0 16px;
+  background: var(--stock);
+  border: 1.5px solid var(--forest);
+  color: var(--forest);
+  font-family: var(--type);
+  font-size: 16px;
+}
+
+.input::placeholder {
+  color: var(--forest-60);
+}
+
+.submit {
+  flex: 0 0 auto;
+}
+
+.error {
+  margin-top: 12px;
+  font-size: var(--fs-small);
+  color: var(--forest);
+  max-width: 32em;
+}
+
+@media (max-width: 860px) {
+  .row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
