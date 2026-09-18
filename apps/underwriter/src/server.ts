@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type MiddlewareHandler } from "hono";
 import type { Address, Hex } from "viem";
 import {
   createBankrClient,
@@ -14,7 +14,8 @@ import { registerEvidenceRoute } from "./routes/evidence.js";
 import { registerHealthRoute } from "./routes/health.js";
 import { registerQuoteRoute } from "./routes/quote.js";
 import { registerScoreRoute } from "./routes/score.js";
-import { rateLimit } from "./rateLimit.js";
+import { defaultKeyFor, rateLimit } from "./rateLimit.js";
+import { createPaymentGate, type CreatePaymentGateOptions } from "./payment.js";
 
 export interface CreateAppOptions {
   /** Injected for tests: fixture-backed `ChainOps`. Defaults to a live archive RPC client
@@ -35,6 +36,22 @@ export interface CreateAppOptions {
   cacheNow?: () => number;
   /** Ms clock for the rate limiter's fixed window. Defaults to `Date.now`. */
   rateLimitNow?: () => number;
+  /** Overrides the rate limiter's default per-key request cap (30/window). */
+  rateLimitMax?: number;
+  /** Overrides the rate limiter's default window size (60s). */
+  rateLimitWindowMs?: number;
+  /** Overrides the rate limiter's default bucket cap (10,000). Tests use a small value to
+   * exercise cap eviction without needing thousands of distinct keys. */
+  rateLimitMaxBuckets?: number;
+  /** Injected for tests: overrides the entire x402 payment gate on `/v1/quote` — e.g. a
+   * pass-through middleware for tests focused on the quote route's business logic rather
+   * than payment enforcement, or a gate wired to an in-process facilitator on a forked
+   * chain. Defaults to the real gate built by `createPaymentGate`. */
+  paymentGate?: MiddlewareHandler;
+  /** Injected for tests: a facilitator client for the default payment gate. Ignored when
+   * `paymentGate` is itself overridden. Defaults to an HTTP client against
+   * `config.X402_FACILITATOR_URL`. */
+  facilitatorClient?: CreatePaymentGateOptions["facilitatorClient"];
 }
 
 /**
@@ -67,7 +84,16 @@ export function createApp(config: UnderwriterConfig, options: CreateAppOptions =
 
   registerHealthRoute(app, { chainId: config.CHAIN_ID, network: config.NETWORK });
 
-  app.use("/v1/*", rateLimit({ now: options.rateLimitNow }));
+  app.use(
+    "/v1/*",
+    rateLimit({
+      now: options.rateLimitNow,
+      max: options.rateLimitMax,
+      windowMs: options.rateLimitWindowMs,
+      maxBuckets: options.rateLimitMaxBuckets,
+      keyFor: defaultKeyFor(config.TRUST_PROXY),
+    }),
+  );
 
   registerScoreRoute(app, {
     deps: { chain, bankr, env: { network: config.NETWORK } },
@@ -77,6 +103,9 @@ export function createApp(config: UnderwriterConfig, options: CreateAppOptions =
     now: options.now,
     cacheNow: options.cacheNow,
   });
+
+  const paymentGate =
+    options.paymentGate ?? createPaymentGate(config, { facilitatorClient: options.facilitatorClient });
 
   registerQuoteRoute(app, {
     deps: {
@@ -90,6 +119,7 @@ export function createApp(config: UnderwriterConfig, options: CreateAppOptions =
     hub,
     evidenceStore,
     now: options.now,
+    paymentGate,
   });
 
   registerEvidenceRoute(app, { evidenceStore });

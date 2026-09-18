@@ -92,6 +92,9 @@ function testConfig(overrides: Partial<UnderwriterConfig> = {}): UnderwriterConf
     LLM_MODEL: "test-model",
     EVIDENCE_DIR: evidenceDir,
     NETWORK: "mainnet",
+    UNDERWRITER_PAYTO: "0x2222222222222222222222222222222222222222",
+    X402_FACILITATOR_URL: "https://facilitator.invalid",
+    TRUST_PROXY: false,
     ...overrides,
   };
 }
@@ -103,6 +106,13 @@ async function startFixtureServer(fixture: FixtureSet): Promise<RunningServer> {
     llm: approvingLlm(),
     now: () => fixture.now,
     hostname: "127.0.0.1",
+    // This suite exercises the SDK's HTTP/decode layer (bigint revival, error mapping,
+    // paymentFetch-vs-fetchImpl precedence), not x402 payment enforcement — that's covered
+    // by `@advance/underwriter`'s own `test/payment.test.ts`. A pass-through gate keeps
+    // `/v1/quote` open here so these tests don't need a real (or stubbed) payment per call.
+    paymentGate: async (_c, next) => {
+      await next();
+    },
   });
 }
 

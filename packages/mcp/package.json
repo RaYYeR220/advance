@@ -1,0 +1,42 @@
+{
+  "name": "@advance/mcp",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "advance-mcp": "./dist/bin/advance-mcp.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:fork": "vitest run --config vitest.fork.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "dev:http": "tsx src/bin/advance-mcp.ts --http",
+    "dev:stdio": "tsx src/bin/advance-mcp.ts"
+  },
+  "dependencies": {
+    "@advance/core": "workspace:*",
+    "@advance/sdk": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "viem": "^2.56.6",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

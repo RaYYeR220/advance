@@ -1,4 +1,4 @@
-import type { Hono } from "hono";
+import type { Hono, MiddlewareHandler } from "hono";
 import type { Address } from "viem";
 import { z } from "zod";
 import {
@@ -7,7 +7,6 @@ import {
   type SupportedChainId,
   type UnderwriteDeps,
 } from "@advance/core";
-import { paymentGate } from "../paymentGate.js";
 import { toJsonSafe } from "../jsonSafe.js";
 import type { EvidenceStore } from "../store.js";
 
@@ -27,16 +26,21 @@ export interface QuoteRouteOptions {
   /** Unix seconds; must be within 300s of the chain's own latest block time. Defaults to
    * the real wall clock; tests inject a fixed value matching their fixture's block time. */
   now?: () => number;
+  /** The x402 payment gate for this route (see `payment.ts`'s `createPaymentGate`) — the
+   * engine only ever runs once this middleware calls `next()`. Required explicitly (no
+   * default) so a route can never accidentally ship without a gate; tests that aren't
+   * about payment enforcement inject a pass-through middleware instead. */
+  paymentGate: MiddlewareHandler;
 }
 
 /**
  * `POST /v1/quote`: the paid path — full engine run (memo request + a signed `TermSheet`
- * on approval). `paymentGate` is a real middleware seam, a no-op until x402 lands.
+ * on approval). `options.paymentGate` enforces the x402 charge before any of this runs.
  */
 export function registerQuoteRoute(app: Hono, options: QuoteRouteOptions): void {
   const nowSeconds = options.now ?? (() => Math.floor(Date.now() / 1000));
 
-  app.post("/v1/quote", paymentGate(), async (c) => {
+  app.post("/v1/quote", options.paymentGate, async (c) => {
     let rawBody: unknown;
     try {
       rawBody = await c.req.json();
