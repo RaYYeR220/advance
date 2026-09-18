@@ -1,7 +1,31 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
-    "build": { "dependsOn": ["^build"], "outputs": ["dist/**", ".next/**", "!.next/cache/**"] },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
+      "env": [
+        "NEXT_PUBLIC_CHAIN_ID",
+        "NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID",
+        "BASE_RPC_URL",
+        "BASE_SEPOLIA_RPC_URL",
+        "ADVANCE_HUB",
+        "UNDERWRITER_API_URL",
+        "EVENTS_URL",
+        "BLOB_READ_WRITE_TOKEN",
+        "CHAIN_ID",
+        "UNDERWRITER_PRIVATE_KEY",
+        "LLM_BASE_URL",
+        "LLM_API_KEY",
+        "LLM_MODEL",
+        "EVIDENCE_DIR",
+        "NETWORK",
+        "UNDERWRITER_PAYTO",
+        "X402_FACILITATOR_URL",
+        "TRUST_PROXY",
+        "UNDERWRITER_INTERNAL_KEY"
+      ]
+    },
     "test": { "dependsOn": ["^build"] },
     "typecheck": { "dependsOn": ["^build"] },
     "lint": {},
