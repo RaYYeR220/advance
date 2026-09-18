@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import type { MiddlewareHandler } from "hono";
 import type { Address } from "viem";
 import { privateKeyToAddress } from "viem/accounts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -26,6 +27,15 @@ const HUB: Address = "0x00000000000000000000000000000000000A11CE";
 const TEST_PRIVATE_KEY = "0x25c1a68a978b06379aa93931b26bef58b77c5fb7c64fd4bd5c93f490c085109c" as const;
 const SIGNER_ADDRESS = privateKeyToAddress(TEST_PRIVATE_KEY);
 const AGENT_CARD: Address = "0x1234567890123456789012345678901234567890";
+const UNDERWRITER_PAYTO: Address = "0x2222222222222222222222222222222222222222";
+
+/** A pass-through stand-in for the real x402 gate — used by every test below that
+ * exercises `/v1/quote`'s business logic (signature, terms, deny reasons, evidence,
+ * error hygiene), none of which is about payment enforcement itself. Real payment
+ * enforcement (402 shape, paid-path settlement) is covered in `test/payment.test.ts`. */
+const PASS_THROUGH_PAYMENT_GATE: MiddlewareHandler = async (_c, next) => {
+  await next();
+};
 
 const FIXTURES_ROOT = resolve(import.meta.dirname, "../../../packages/core/test/fixtures");
 
@@ -81,6 +91,9 @@ function testConfig(overrides: Partial<UnderwriterConfig> = {}): UnderwriterConf
     LLM_MODEL: "test-model",
     EVIDENCE_DIR: evidenceDir,
     NETWORK: "mainnet",
+    UNDERWRITER_PAYTO,
+    X402_FACILITATOR_URL: "https://facilitator.invalid",
+    TRUST_PROXY: false,
     ...overrides,
   };
 }
@@ -118,6 +131,11 @@ function buildApp(options: {
   config?: Partial<UnderwriterConfig>;
   evidenceStore?: EvidenceStore;
   rateLimitNow?: () => number;
+  rateLimitMax?: number;
+  rateLimitWindowMs?: number;
+  rateLimitMaxBuckets?: number;
+  paymentGate?: MiddlewareHandler;
+  cacheNow?: () => number;
 }) {
   return createApp(testConfig(options.config), {
     chain: chainOpsFor(options.fixture),
@@ -126,6 +144,11 @@ function buildApp(options: {
     now: () => options.fixture.now,
     evidenceStore: options.evidenceStore,
     rateLimitNow: options.rateLimitNow,
+    rateLimitMax: options.rateLimitMax,
+    rateLimitWindowMs: options.rateLimitWindowMs,
+    rateLimitMaxBuckets: options.rateLimitMaxBuckets,
+    paymentGate: options.paymentGate ?? PASS_THROUGH_PAYMENT_GATE,
+    cacheNow: options.cacheNow,
   });
 }
 
@@ -203,6 +226,7 @@ describe("GET /v1/score/:token", () => {
       bankr: bankrFor(fixture),
       llm: unreachableLlm(),
       now: () => fixture.now,
+      paymentGate: PASS_THROUGH_PAYMENT_GATE,
     });
 
     const first = await app.request(`/v1/score/${fixture.token}`);
@@ -210,6 +234,37 @@ describe("GET /v1/score/:token", () => {
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
     expect(chainIdCalls).toBe(1);
+  });
+
+  it("recomputes once the cache entry's TTL (5 minutes) has passed", async () => {
+    const fixture = loadRatspeak();
+    let chainIdCalls = 0;
+    const baseOps = chainOpsFor(fixture);
+    const countingOps: ChainOps = {
+      ...baseOps,
+      async getChainId() {
+        chainIdCalls += 1;
+        return baseOps.getChainId();
+      },
+    };
+    let fakeCacheNow = 10_000_000;
+    const app = createApp(testConfig(), {
+      chain: countingOps,
+      bankr: bankrFor(fixture),
+      llm: unreachableLlm(),
+      now: () => fixture.now,
+      cacheNow: () => fakeCacheNow,
+      paymentGate: PASS_THROUGH_PAYMENT_GATE,
+    });
+
+    const first = await app.request(`/v1/score/${fixture.token}`);
+    expect(first.status).toBe(200);
+    expect(chainIdCalls).toBe(1);
+
+    fakeCacheNow += 5 * 60 * 1000 + 1; // just past the 5-minute TTL
+    const second = await app.request(`/v1/score/${fixture.token}`);
+    expect(second.status).toBe(200);
+    expect(chainIdCalls).toBe(2);
   });
 });
 
@@ -329,10 +384,15 @@ describe("GET /v1/evidence/:hash", () => {
 });
 
 describe("rate limiting", () => {
-  it("allows 30 requests per minute per IP and rejects the 31st with 429", async () => {
+  it("TRUST_PROXY=1: allows 30 requests per minute per X-Forwarded-For key and rejects the 31st with 429", async () => {
     const fixture = loadRatspeak();
     let fakeNow = 1_000_000;
-    const app = buildApp({ fixture, llm: unreachableLlm(), rateLimitNow: () => fakeNow });
+    const app = buildApp({
+      fixture,
+      llm: unreachableLlm(),
+      rateLimitNow: () => fakeNow,
+      config: { TRUST_PROXY: true },
+    });
 
     for (let i = 0; i < 30; i++) {
       const res = await app.request(`/v1/score/${fixture.token}`, {
@@ -346,11 +406,65 @@ describe("rate limiting", () => {
     });
     expect(res31.status).toBe(429);
 
-    // A different IP still gets through — the limit is per-key, not global.
+    // A different forwarded-for value still gets through — the limit is per-key, not global.
     const otherIp = await app.request(`/v1/score/${fixture.token}`, {
       headers: { "x-forwarded-for": "203.0.113.10" },
     });
     expect(otherIp.status).not.toBe(429);
+  });
+
+  it("default (TRUST_PROXY unset): a spoofed X-Forwarded-For does not create a new bucket", async () => {
+    // `app.request()` never carries a real socket, so the default key selector's
+    // `getConnInfo` call always throws here and falls back to a single shared "unknown"
+    // bucket — exactly the point: without an explicit TRUST_PROXY=1, a header the caller
+    // fully controls is never consulted, spoofed or not. `TRUST_PROXY` defaults to false in
+    // `testConfig`, so no override is passed here.
+    const fixture = loadRatspeak();
+    let fakeNow = 2_000_000;
+    const app = buildApp({
+      fixture,
+      llm: unreachableLlm(),
+      rateLimitNow: () => fakeNow,
+      rateLimitMax: 3,
+    });
+
+    const first = await app.request(`/v1/score/${fixture.token}`, { headers: { "x-forwarded-for": "198.51.100.1" } });
+    const second = await app.request(`/v1/score/${fixture.token}`, { headers: { "x-forwarded-for": "198.51.100.2" } });
+    const third = await app.request(`/v1/score/${fixture.token}`, { headers: { "x-forwarded-for": "198.51.100.3" } });
+    expect([first.status, second.status, third.status]).toEqual([200, 200, 200]);
+
+    // The 4th request, from yet another spoofed X-Forwarded-For, still lands in the same
+    // "unknown" bucket and trips the max=3 limit — proving the header never fragmented it.
+    const fourth = await app.request(`/v1/score/${fixture.token}`, { headers: { "x-forwarded-for": "198.51.100.4" } });
+    expect(fourth.status).toBe(429);
+  });
+
+  it("evicts the oldest bucket once the bucket cap is hit, resetting its count", async () => {
+    const fixture = loadRatspeak();
+    let fakeNow = 3_000_000;
+    const app = buildApp({
+      fixture,
+      llm: unreachableLlm(),
+      rateLimitNow: () => fakeNow,
+      rateLimitMax: 1,
+      rateLimitMaxBuckets: 2,
+      config: { TRUST_PROXY: true },
+    });
+
+    const a1 = await app.request(`/v1/score/${fixture.token}`, { headers: { "x-forwarded-for": "10.0.0.1" } });
+    expect(a1.status).not.toBe(429);
+    const b1 = await app.request(`/v1/score/${fixture.token}`, { headers: { "x-forwarded-for": "10.0.0.2" } });
+    expect(b1.status).not.toBe(429);
+
+    // A 3rd distinct key exceeds the cap of 2 buckets — "a" (the oldest) is evicted to
+    // make room for "c".
+    const c1 = await app.request(`/v1/score/${fixture.token}`, { headers: { "x-forwarded-for": "10.0.0.3" } });
+    expect(c1.status).not.toBe(429);
+
+    // "a"'s bucket was evicted, not merely full: a fresh request from "a" gets a brand new
+    // bucket (count back to 1, allowed) instead of immediately re-tripping max=1.
+    const a2 = await app.request(`/v1/score/${fixture.token}`, { headers: { "x-forwarded-for": "10.0.0.1" } });
+    expect(a2.status).not.toBe(429);
   });
 });
 

@@ -1,0 +1,11 @@
+{
+  "network": "base-sepolia",
+  "currency": "USDC",
+  "services": {
+    "quote": {
+      "description": "Advance underwriting credit memo: full engine run, signed term sheet on approval",
+      "price": "0.05",
+      "methods": ["POST"]
+    }
+  }
+}

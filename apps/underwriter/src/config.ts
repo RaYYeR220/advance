@@ -21,6 +21,25 @@ const envSchema = z.object({
   EVIDENCE_DIR: z.string().min(1),
   NETWORK: z.enum(["mainnet", "demo"]),
   PORT: z.coerce.number().int().positive().optional(),
+  /** Receives the 0.05 USDC quote fee (`POST /v1/quote`'s x402 `payTo`). */
+  UNDERWRITER_PAYTO: z.string().regex(ADDRESS_PATTERN, "UNDERWRITER_PAYTO must be a 0x-prefixed 20-byte address"),
+  /** x402 facilitator this service verifies/settles quote payments against. The public
+   * reference facilitator is a reasonable default for testnet; a real deployment should
+   * point this at an operator-controlled facilitator. */
+  X402_FACILITATOR_URL: z.string().url().default("https://x402.org/facilitator"),
+  /** Off by default: the rate limiter keys on the real socket address, which a client
+   * cannot spoof. Set to "1" only when this service always runs behind a proxy/load
+   * balancer that sets `X-Forwarded-For` itself — turning it on in front of an untrusted
+   * client lets that client mint unlimited rate-limit buckets by spoofing the header. */
+  TRUST_PROXY: z
+    .string()
+    .optional()
+    .transform((value) => value === "1"),
+  /** Unset by default (no bypass possible). When set, a `POST /v1/quote` request carrying
+   * this exact value in `X-Internal-Key` skips the x402 gate — used only by the Bankr x402
+   * Cloud forwarder (`apps/underwriter-x402`), which has already collected payment on its
+   * own edge before relaying the request here. */
+  UNDERWRITER_INTERNAL_KEY: z.string().min(1).optional(),
 });
 
 export type UnderwriterConfig = Readonly<z.infer<typeof envSchema>>;
