@@ -1,0 +1,22 @@
+{
+  "hub": "0xFe399e455E6fF9251CDae904423D69cb2772adeB",
+  "escrowDeployer": "0x0104DeA98a6CFA24bfcc43E183a2fE421d77270d",
+  "loanDeployer": "0xD5bD206615E9bDa9E5b6eB6F9CbD36ed3B91AB26",
+  "underwriter": "0x35C905C55bD6E77D7caFCFdb75DFCb05237Fe8C7",
+  "owner": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
+  "block": 51474067,
+  "config": {
+    "usdc": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    "weth": "0x4200000000000000000000000000000000000006",
+    "ccaFactory": "0x000000001F26a0044BaA66024e7b6599c61963F8",
+    "router": "0x2626664c2603336E57B271c5C0b26F421741e481",
+    "ethUsdFeed": "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70",
+    "sequencerFeed": "0xBCF85224fc0756B9Fa45aA7892530B47e10b6433",
+    "reputationRegistry": "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63",
+    "identityRegistry": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+    "maxStaleness": 3600,
+    "slippageBps": 100,
+    "minActivityUsdc": 100000,
+    "_comment": "Base mainnet. maxStaleness 3600s covers the ETH/USD feed's ~20min heartbeat with room to spare. slippageBps 100 (1%) reflects mainnet's deep WETH/USDC liquidity. minActivityUsdc 100_000 (=$0.10) is the fee-derived repayment that must land before an escrow's default timer moves. A $1 floor would make a $5 micro-loan defaultable while it is still paying as agreed (the $0.10 floor is 10% of such a cap, not 100%+ of it)."
+  }
+}

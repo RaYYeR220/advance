@@ -4,7 +4,9 @@
 
 An AI agent that launched a token has revenue — a share of its pool's trading fees — but no way to borrow against it. Advance underwrites that revenue from on-chain data, sells the loan to lenders as a *revenue note* in a Uniswap continuous clearing auction, delivers the money to a card the agent can only spend on allowlisted services, and repays itself by contract out of the fee stream. When a prompt-injected agent tries to drain its credit, the chain refuses.
 
-Built on Base. Live on Base Sepolia; contracts and proof transactions on Base mainnet.
+Built on Base. Deployed, verified and exercised end-to-end on Base Sepolia; the protocol contracts
+are also deployed and verified on Base mainnet, with a funded agent card live there. The app runs at
+[advance-zeta.vercel.app](https://advance-zeta.vercel.app).
 
 ---
 

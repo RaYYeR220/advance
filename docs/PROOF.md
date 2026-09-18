@@ -1,11 +1,93 @@
 # Proof
 
 Every claim below is checkable from this page alone: an address or a transaction hash on
-[Base Sepolia](https://sepolia.basescan.org), or a shell command that reproduces the number next to
-it. Addresses marked "confirmed on-chain" were re-read live while writing this page — not copied
-from a log.
+[Base Sepolia](https://sepolia.basescan.org) or [Base mainnet](https://basescan.org), or a shell
+command that reproduces the number next to it. Addresses marked "confirmed on-chain" were re-read
+live while writing this page — not copied from a log.
 
-## Deployment (Base Sepolia, chain id 84532)
+## Deployment (Base mainnet, chain id 8453)
+
+| Contract | Address |
+|---|---|
+| AdvanceHub | [`0xFe399e455E6fF9251CDae904423D69cb2772adeB`](https://basescan.org/address/0xFe399e455E6fF9251CDae904423D69cb2772adeB) |
+| EscrowDeployer | [`0x0104DeA98a6CFA24bfcc43E183a2fE421d77270d`](https://basescan.org/address/0x0104DeA98a6CFA24bfcc43E183a2fE421d77270d) |
+| LoanDeployer | [`0xD5bD206615E9bDa9E5b6eB6F9CbD36ed3B91AB26`](https://basescan.org/address/0xD5bD206615E9bDa9E5b6eB6F9CbD36ed3B91AB26) |
+| Underwriter signer | `0x35C905C55bD6E77D7caFCFdb75DFCb05237Fe8C7` |
+| Owner / deployer | [`0x70663CbD48a168A43120BC16e4712e1959fc382f`](https://basescan.org/address/0x70663CbD48a168A43120BC16e4712e1959fc382f) |
+| Deployment | run recorded at block `51474067`; AdvanceHub's own creation tx landed at block `51474076` ([`0x602bc255…e9a6664`](https://basescan.org/tx/0x602bc255d82e3a9ebf8c2c8e5cb13c053bfc530bae9d38207ccfd26bbe9a6664), status success), EscrowDeployer at `51474074`, LoanDeployer at `51474075` — one sequential run, all three creator addresses match the owner above |
+
+Config, re-read live from `AdvanceHub.config()` while writing this page:
+
+| Parameter | Value | Meaning |
+|---|---|---|
+| `minActivityUsdc` | `100000` (**$0.10**) | fee-derived USDC that must reach a note before the default clock resets |
+| `slippageBps` | `100` (**1%**) | allowed swap slippage below the Chainlink-derived price on harvest — tight, because mainnet's WETH/USDC pool is deep |
+| `maxStaleness` | `3600` (**1h**) | maximum age of the ETH/USD price used to bound a harvest's swap |
+| `sequencerFeed` | [`0xBCF85224fc0756B9Fa45aA7892530B47e10b6433`](https://basescan.org/address/0xBCF85224fc0756B9Fa45aA7892530B47e10b6433) | Base's real Chainlink L2 sequencer-uptime feed — set here, unlike Sepolia |
+
+`owner()` and `underwriter()` read live off the deployed hub match the table above exactly, and the
+hub's own `escrowDeployer()` / `loanDeployer()` getters match the two deployer addresses above —
+this is the hub actually wired to these contracts, not just three addresses in the same file.
+
+Verification, confirmed live against both services while writing this page:
+
+| Contract | Sourcify | Blockscout |
+|---|---|---|
+| AdvanceHub | [exact_match](https://repo.sourcify.dev/8453/0xFe399e455E6fF9251CDae904423D69cb2772adeB) | [verified](https://base.blockscout.com/address/0xFe399e455E6fF9251CDae904423D69cb2772adeB) |
+| EscrowDeployer | [exact_match](https://repo.sourcify.dev/8453/0x0104DeA98a6CFA24bfcc43E183a2fE421d77270d) | [verified](https://base.blockscout.com/address/0x0104DeA98a6CFA24bfcc43E183a2fE421d77270d) |
+| LoanDeployer | [exact_match](https://repo.sourcify.dev/8453/0xD5bD206615E9bDa9E5b6eB6F9CbD36ed3B91AB26) | [verified](https://base.blockscout.com/address/0xD5bD206615E9bDa9E5b6eB6F9CbD36ed3B91AB26) |
+
+All three were already `exact_match` on Sourcify's v2 API when this page was written. The
+Blockscout mirror was missing (bytecode-only, no source) at the same time, so we submitted it live
+with `forge verify-contract --verifier blockscout` for all three; polling the API afterward shows
+`is_verified: true` with the full source and ABI for all three.
+
+No loan has been opened against this mainnet hub yet — see "What is not proven yet" below.
+
+### Mainnet AgentCard
+
+A funded, allowlisted `AgentCard` exists on Base mainnet, independent of any loan:
+[`0x4958a4ADbf75AF01dBeE5c2AED5aAcD391c4bdd9`](https://basescan.org/address/0x4958a4ADbf75AF01dBeE5c2AED5aAcD391c4bdd9) ·
+owner [`0x6d6eA0b1C9262848053d67448EF533Adb5c3366E`](https://basescan.org/address/0x6d6eA0b1C9262848053d67448EF533Adb5c3366E) ·
+allowlist = the Bankr LLM gateway's payTo
+[`0x8AEE621035D93Deb3C0C1177fac252dC2dd501a0`](https://basescan.org/address/0x8AEE621035D93Deb3C0C1177fac252dC2dd501a0)
+(the card's `payees()` returns exactly this one address) · per-call cap `10000` (**$0.01**) ·
+auth window `300s` — every value here read live off the deployed contract.
+
+Funded with 0.5 USDC:
+[`0x91c81831…765a852b70b37`](https://basescan.org/tx/0x91c81831775acfc20a0fb29d8f7ad0fe683a9741d6d05a7e839765a852b70b37),
+status success, a `Transfer` of `500000` USDC-wei from the owner to the card. The card's live USDC
+balance is still `500000` — that funding transfer is the only USDC that has ever reached this
+address, in or out (checked against its full token-transfer history, not just current balance).
+
+**The open question, tried and left open.** We paid the Bankr LLM gateway 0.001 USDC (its own
+quoted price for the endpoint) from this card over x402 on mainnet. The gateway returned HTTP 500
+("Internal server error") without settling. As a control, we sent the identical payment — same
+endpoint, same 0.001 USDC — from an ordinary EOA instead of the card. Same result: HTTP 500, no
+settlement. On-chain balances for the card, the EOA and the payee were unchanged by either attempt
+(the card's transfer history above shows why: nothing has ever left it). That makes the failure the
+gateway's, not something specific to an ERC-1271 contract payer — but it also means the question we
+set out to answer, *does that gateway's facilitator accept a contract payer at all*, is still open,
+not answered. See `docs/CLAIMS.md` → Not claimed. Both attempts are reproducible scripts, not just
+a narrated result:
+
+```bash
+cd packages/agent-kit
+BASE_RPC_URL=... CARD_OWNER_PRIVATE_KEY=0x... node scripts/gateway-card-payer.mjs   # the card
+DEPLOYER_PRIVATE_KEY=0x... node scripts/gateway-control-eoa.mjs                     # the control EOA
+```
+
+## Live app
+
+[`https://advance-zeta.vercel.app`](https://advance-zeta.vercel.app) — the site, and the
+underwriter API mounted at `/api/v1/*` on the same origin. An unpaid `POST /api/v1/quote` returns
+HTTP 402 with x402 payment requirements for `$0.05` USDC, confirmed live while writing this page. A
+paid credit-memo endpoint for the same quote also exists on Bankr's x402 Cloud at
+[`https://x402.bankr.bot/0x95cffe1e64bbca51531f56096638a17f1029750a/quote`](https://x402.bankr.bot/0x95cffe1e64bbca51531f56096638a17f1029750a/quote)
+(also confirmed live, same 402 and price) — it is not yet wired to the API's public URL above, so
+paying it does not currently reach this repo's engine.
+
+## Deployment and lifecycle (Base Sepolia, chain id 84532)
 
 | Contract | Address |
 |---|---|
@@ -177,25 +259,29 @@ value = -100, valueDecimals = 0, tag1 = "advance", tag2 = "default", isRevoked =
 
 ## The three refusals
 
-Each one is a layer refusing before value moves — none of the three ever became a mined transaction,
-which is the point.
+Each one is a layer refusing before value moves. Two of the three are now mined, reverted
+transactions on Base Sepolia — not simulations, not view calls, not pre-broadcast reverts. Both
+receipts show `status: 0` (failed) and were re-fetched live while writing this page.
 
 1. **Gateway precheck (off-chain, before any signature is requested).** A synthetic HTTP 402
    offering payee `0x000000000000000000000000000000000000dEaD` — not on Agent A's card allowlist —
    fed to the real card-payment gateway. Result: HTTP 402, `refused: true`, logged with
-   `layer: "gateway"`. No signature was ever requested, so there is nothing on-chain to link.
-2. **On-chain ERC-1271 rejection (gateway bypassed on purpose).** A USDC
-   `TransferWithAuthorization` blob for the same non-allowlisted payee, signed for real by Agent A's
-   card-owner key (the signer only checks the message shape, not the payee — the payee check lives
-   on-chain by design), submitted directly to the real facilitator `https://x402.org/facilitator`'s
-   `/verify`. Result: `isValid: false`, `invalidReason: "invalid_exact_evm_signature"` — the
-   facilitator's own call into
-   [`AgentCard.isValidSignature`](https://sepolia.basescan.org/address/0xe95D8E4684CeD7ceE49C2e4fb01d7877E8Bf2A9D)
-   on-chain rejected it. This is a view call the facilitator makes, not a transaction, so there is no
-   tx hash — the card's `isValidSignature` logic is verifiable directly on the contract above.
-3. **On-chain over-limit draw revert.** Covered under Agent A above:
-   `CreditLine.DrawLimitExceeded`, selector `0xe0cd8baf`, a simulation revert once the period's draw
-   limit was exhausted — never broadcast.
+   `layer: "gateway"`. No signature was ever requested, so there is nothing on-chain to link; this
+   one stays off-chain by design — it is meant to stop a payment before it ever reaches the card.
+2. **On-chain ERC-1271 rejection, mined.** A real USDC `transferWithAuthorization` to
+   `0x000000000000000000000000000000000000dEaD` — not on Agent B's card allowlist — signed for real
+   by Agent B's card-owner key and broadcast for real (the signer only checks the message shape, not
+   the payee; the payee check lives on-chain, by design). It reverted with `"FiatTokenV2: invalid
+   signature"` because
+   [`AgentCard.isValidSignature`](https://sepolia.basescan.org/address/0x6DE912dB7051BaD46d85D6A76b95bBc554CB180F)
+   returned `0xffffffff`: tx
+   [`0xf1979b96…983590d13da8ef6388`](https://sepolia.basescan.org/tx/0xf1979b962254e6cdc5585aa202102f8d27679011b5d6dc983590d13da8ef6388),
+   status `0` (reverted), gas used `62,814`.
+3. **On-chain over-limit draw, mined.** Agent B's card calling its own `drawCredit` against `0`
+   remaining in the period's `CreditLine` reverted `DrawLimitExceeded(100000, 0)` one level down,
+   broadcast and mined: tx
+   [`0xef253117…0378a17c0fd735823174706c`](https://sepolia.basescan.org/tx/0xef253117bf07a89859768b7519dbd76efc52f0290378a17c0fd735823174706c),
+   status `0` (reverted), gas used `48,502`.
 
 ## Reproducible proofs
 
@@ -282,13 +368,17 @@ never moves the cap up, the draw limit up, or the floor down versus the pre-memo
 
 ## What is not proven yet
 
-- **No mainnet deployment.** Everything above is Base Sepolia. There is no mainnet hub address and
-  no mainnet loan in this repository's history.
-- **No mainnet micro-loan.** The self-audit's deployment gate (`docs/SECURITY.md`) clears a small
-  own-pool mainnet loan, but none has been opened.
-- **Whether the Bankr gateway's facilitator accepts a contract payer is an open question, not a
-  claim.** The card spend proven live above used a contract payer (the `AgentCard`, via EIP-3009 +
-  ERC-1271) against the generic `https://x402.org/facilitator`, and that worked. The paid
-  underwriting-quote endpoint (`POST /v1/quote`) is gated separately, behind Bankr's own x402 Cloud
-  edge forwarding to this repo's own x402 gate — whether *that* facilitator accepts the same kind of
-  contract payer has not been exercised here and is left open rather than assumed either way.
+- **No mainnet loan yet.** AdvanceHub, EscrowDeployer and LoanDeployer are deployed and verified on
+  Base mainnet (above), and a funded, allowlisted `AgentCard` exists there too, but no loan has been
+  opened, no auction has run and no credit line has drawn on mainnet. The self-audit's deployment
+  gate (`docs/SECURITY.md`) clears a small own-pool mainnet loan, but none has been opened.
+- **Whether Bankr's LLM-gateway facilitator accepts an ERC-1271 contract payer is still open — we
+  tried, and the service didn't answer either way.** See "The open question, tried and left open"
+  under the mainnet `AgentCard` above: both the contract payer and a control EOA got HTTP 500 from
+  the same endpoint for the same amount, with no on-chain settlement on either side.
+- **Whether Bankr's separate x402 Cloud edge (gating the paid underwriting-quote endpoint) accepts
+  a contract payer is unexercised, not claimed either way.** The card spend proven live above (Agent
+  A / Agent B) used a contract payer (the `AgentCard`, via EIP-3009 + ERC-1271) against the generic
+  `https://x402.org/facilitator`, and that worked. Bankr's own x402 Cloud edge in front of
+  `POST /v1/quote` — a different facilitator entirely — has not been tried with a contract payer
+  here.
