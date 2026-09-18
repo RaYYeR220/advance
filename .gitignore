@@ -12,3 +12,5 @@ coverage/
 .vercel/
 *.log
 .DS_Store
+
+.vercel
