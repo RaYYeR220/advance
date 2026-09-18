@@ -1,0 +1,234 @@
+[
+  {
+    "id": "0xf1979b962254e6cdc5585aa202102f8d27679011b5d6dc983590d13da8ef6388",
+    "ts": 1789737678000,
+    "agent": "agentB",
+    "kind": "refusal",
+    "loanId": "5",
+    "txHash": "0xf1979b962254e6cdc5585aa202102f8d27679011b5d6dc983590d13da8ef6388",
+    "data": {
+      "layer": "card-1271",
+      "reason": "invalid_exact_evm_signature",
+      "payTo": "0x000000000000000000000000000000000000dEaD",
+      "amount": "1000",
+      "revertReason": "FiatTokenV2: invalid signature",
+      "onChain": true,
+      "blockNumber": 46984695,
+      "gasUsed": 62814,
+      "status": "reverted"
+    }
+  },
+  {
+    "id": "0xef253117bf07a89859768b7519dbd76efc52f0290378a17c0fd735823174706c",
+    "ts": 1789737592000,
+    "agent": "agentB",
+    "kind": "refusal",
+    "loanId": "5",
+    "txHash": "0xef253117bf07a89859768b7519dbd76efc52f0290378a17c0fd735823174706c",
+    "data": {
+      "layer": "credit-line",
+      "reason": "DrawLimitExceeded",
+      "requested": "100000",
+      "available": "0",
+      "onChain": true,
+      "blockNumber": 46984652,
+      "gasUsed": 48502,
+      "status": "reverted"
+    }
+  },
+  {
+    "id": "1789735508155-1f14ab6e-b3c8-496d-afbd-ffb590c019ed",
+    "ts": 1789735508155,
+    "agent": "agentA",
+    "kind": "refusal",
+    "data": {
+      "layer": "credit-line",
+      "reason": "unknown",
+      "onChain": false,
+      "requested": "1",
+      "message": "The contract function \"drawCredit\" reverted with the following signature:\n0xe0cd8baf\n\nUnable to decode signature \"0xe0cd8baf\" as it was not found on the provided ABI.\nMake sure you are using the correct ABI and that the error exists on it.\nYou can look up the decoded signature here: https://4byte.sourcify.dev/?q=0xe0cd8baf.\n \nContract Call:\n  address:   0xe95D8E4684CeD7ceE49C2e4fb01d7877E8Bf2A9D\n  function:  drawCredit(address creditLine, uint256 amount)\n  args:                (0xD20962be98A28f89ACB1362726Ea17b77164647c, 1)\n  sender:    0xD9c7B31024AAE2DB86ead708C644DbA606CBfcA7\n\nDocs: https://viem.sh/docs/contract/decodeErrorResult\nDetails: RPC Request failed.\n\nURL: https://base-sepolia.g.alchemy.com/v2/[redacted]\nRequest body: [redacted]\n\nDetails: execution reverted\nVersion: viem@2.56.6\nVersion: viem@2.56.6"
+    },
+    "loanId": "4"
+  },
+  {
+    "id": "1789735352432-5ed315ef-fb56-479e-ba38-1dab6631c480",
+    "ts": 1789735352432,
+    "agent": "agentB-owner",
+    "kind": "receipt",
+    "data": {
+      "payTo": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
+      "amount": "1000",
+      "network": "eip155:84532",
+      "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f"
+    },
+    "loanId": "5",
+    "txHash": "0xadf0590bc8934afd34859a35cf4746082b3e8842daa39e85f8f5469966d7f0fc"
+  },
+  {
+    "id": "1789735348538-4d0c5636-fe8d-46e1-ad45-7d11e6b00ed2",
+    "ts": 1789735348538,
+    "agent": "agentB-owner",
+    "kind": "receipt",
+    "data": {
+      "payTo": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
+      "amount": "1000",
+      "network": "eip155:84532",
+      "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f"
+    },
+    "loanId": "5",
+    "txHash": "0xed7a178304a99f3d14f55d4145f4dc75d599625c8df8510b6aa914e18bde808c"
+  },
+  {
+    "id": "1789735346834-11c54fea-bd28-4f96-a17a-1d7aac2c04c0",
+    "ts": 1789735346834,
+    "agent": "agentB-owner",
+    "kind": "receipt",
+    "data": {
+      "payTo": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
+      "amount": "1000",
+      "network": "eip155:84532",
+      "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f"
+    },
+    "loanId": "5",
+    "txHash": "0x17b7a790a247b07353804a7499ae77cc11fb199646d2d5b113d5e14ca7f83779"
+  },
+  {
+    "id": "1789735344682-bf1a4801-8a03-483b-951e-8c63c72f64b9",
+    "ts": 1789735344682,
+    "agent": "agentB-owner",
+    "kind": "receipt",
+    "data": {
+      "payTo": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
+      "amount": "1000",
+      "network": "eip155:84532",
+      "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f"
+    },
+    "loanId": "5",
+    "txHash": "0x90e954417b39c28e2257808d7fbd2843b4bce28d6b653a3603c145f258e08a37"
+  },
+  {
+    "id": "1789735332065-c1691808-1764-4ccb-b0b0-7b525c83bde5",
+    "ts": 1789735332065,
+    "agent": "agentA-owner",
+    "kind": "settlement_failed",
+    "data": {
+      "payTo": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
+      "amount": "1000",
+      "network": "eip155:84532",
+      "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "status": 402,
+      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f"
+    },
+    "loanId": "4"
+  },
+  {
+    "id": "1789735331684-febcf641-623e-43ef-9f2e-38ab18df3cfa",
+    "ts": 1789735331684,
+    "agent": "agentA-owner",
+    "kind": "receipt",
+    "data": {
+      "payTo": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
+      "amount": "1000",
+      "network": "eip155:84532",
+      "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f"
+    },
+    "loanId": "4",
+    "txHash": "0x3e2c1109d17fb038ee3be4e9d06d4daa4f4134459a09615114e41b6f08a6110d"
+  },
+  {
+    "id": "1789735330208-4a93dd2a-11ea-452a-9f63-f2d5aab0694f",
+    "ts": 1789735330208,
+    "agent": "agentA-owner",
+    "kind": "receipt",
+    "data": {
+      "payTo": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
+      "amount": "1000",
+      "network": "eip155:84532",
+      "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f"
+    },
+    "loanId": "4",
+    "txHash": "0xb4cb776dc813240884812f4371108764e14e739cf65a3eeab55e2340785c27b1"
+  },
+  {
+    "id": "1789735326694-629cb370-e7f8-46ae-888a-8e8a92196345",
+    "ts": 1789735326694,
+    "agent": "agentA-owner",
+    "kind": "receipt",
+    "data": {
+      "payTo": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
+      "amount": "1000",
+      "network": "eip155:84532",
+      "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f"
+    },
+    "loanId": "4",
+    "txHash": "0xbdff14a70af4cb38eaccccebdd57ee17cc6a56fa82a1e45bf52443bcd7341ea9"
+  },
+  {
+    "id": "1789735249449-3973bb75-cce4-4eec-a42b-bc0e074a3bd2",
+    "ts": 1789735249449,
+    "agent": "agentB",
+    "kind": "refusal",
+    "data": {
+      "layer": "gateway",
+      "reason": "payment_creation_failed",
+      "message": "LocalKeyCustody: no key stored for label \"agentB\""
+    },
+    "loanId": "5"
+  },
+  {
+    "id": "1789735127380-202c9ed6-41d7-4360-a5bc-9b831f26d04a",
+    "ts": 1789735127380,
+    "agent": "agentA",
+    "kind": "refusal",
+    "data": {
+      "layer": "gateway",
+      "reason": "payment_creation_failed",
+      "message": "LocalKeyCustody: no key stored for label \"agentA\""
+    },
+    "loanId": "4"
+  },
+  {
+    "id": "1789734950243-7ba9b5d2-94c9-47d5-9ce5-d8cca330426e",
+    "ts": 1789734950243,
+    "agent": "agentA",
+    "kind": "refusal",
+    "data": {
+      "layer": "card-1271",
+      "reason": "invalid_exact_evm_signature",
+      "isValid": false,
+      "payTo": "0x000000000000000000000000000000000000dEaD"
+    },
+    "loanId": "4"
+  },
+  {
+    "id": "1789734949739-10dbb694-eb40-43fb-a916-90bc08dfa5f5",
+    "ts": 1789734949739,
+    "agent": "agentA",
+    "kind": "refusal",
+    "data": {
+      "layer": "gateway",
+      "reason": "malformed_payment_required"
+    },
+    "loanId": "4"
+  },
+  {
+    "id": "1789734293109-1ee8f130-336a-4b22-b6eb-1948cb45a099",
+    "ts": 1789734293109,
+    "agent": "agentA",
+    "kind": "refusal",
+    "data": {
+      "layer": "credit-line",
+      "reason": "DrawLimitExceeded",
+      "requested": "1",
+      "message": "Missing or invalid parameters.\nDouble check you have provided the correct parameters.\n\nURL: https://base-sepolia.g.alchemy.com/v2/[redacted]\nRequest body: [redacted]\n \nRequest Arguments:\n  chain:  Base Sepolia (id: 84532)\n  from:   0xD9c7B31024AAE2DB86ead708C644DbA606CBfcA7\n  to:     0xe95D8E4684CeD7ceE49C2e4fb01d7877E8Bf2A9D\n  data:   0x14fe831c000000000000000000000000d20962be98a28f89acb1362726ea17b77164647c0000000000000000000000000000000000000000000000000000000000000001\n \nContract Call:\n  address:   0xe95D8E4684CeD7ceE49C2e4fb01d7877E8Bf2A9D\n  function:  drawCredit(address creditLine, uint256 amount)\n  args:                (0xD20962be98A28f89ACB1362726Ea17b77164647c, 1)\n  sender:    0xD9c7B31024AAE2DB86ead708C644DbA606CBfcA7\n\nDocs: https://viem.sh/docs/contract/writeContract\nDetails: Missing or invalid parameters.\nDouble check you have provided the correct parameters.\n\nURL: https://base-sepolia.g.alchemy.com/v2/[redacted]\nRequest body: [redacted]\n\nDetails: replacement transaction underpriced\nVersion: viem@2.56.6\nVersion: viem@2.56.6"
+    },
+    "loanId": "4"
+  }
+]
