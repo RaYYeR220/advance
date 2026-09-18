@@ -1,0 +1,62 @@
+{
+  "chainId": 8453,
+  "network": "mainnet",
+  "ageSeconds": "5184000",
+  "dailyFeesWei": [
+    "4000000000000000",
+    "0",
+    "4000000000000000",
+    "0",
+    "4000000000000000",
+    "0",
+    "4000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000",
+    "2000000000000000"
+  ],
+  "creatorSharesWad": "950000000000000000",
+  "ethUsdAnswerE8": "300000000000",
+  "ethUsdStalenessSeconds": "60",
+  "swaps": {
+    "swapCount": 60,
+    "washCount": 3,
+    "whaleCounts": [
+      4,
+      4,
+      4,
+      3
+    ]
+  },
+  "isWethPool": true,
+  "poolLocked": true,
+  "hookGraduationFlag": false,
+  "tokenName": "Spiky #3",
+  "tokenSymbol": "SPK3",
+  "llm": {
+    "kind": "auto"
+  },
+  "discoveryMode": "both",
+  "id": "spiky-3",
+  "category": "spiky",
+  "description": "Alternating high/low daily accrual over the last 7 days (H=4000000000000000,L=0 wei, 4 highs/3 lows) — CV ≈ 0.86-0.87, under the 1.5 CV-haircut threshold; a spiky-looking contrast case that does not itself get the CV haircut (see spiky-1). Older days flat at 2000000000000000."
+}

@@ -1,0 +1,36 @@
+{
+  "name": "@advance/sdk",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:fork": "vitest run --config vitest.fork.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "generate:abis": "tsx scripts/generate-abis.ts"
+  },
+  "dependencies": {
+    "@advance/core": "workspace:*",
+    "viem": "^2.56.6"
+  },
+  "devDependencies": {
+    "@advance/underwriter": "workspace:*",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
