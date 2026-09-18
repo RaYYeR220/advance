@@ -49,6 +49,35 @@ eval/             Graded underwriting eval against a hidden answer key
 skills/advance    Skill that teaches a Bankr agent to use Advance
 ```
 
+## Where the integrations live
+
+**Uniswap** carries two load-bearing jobs: a Continuous Clearing Auction prices every loan, and
+SwapRouter02 converts the fee stream to USDC on every repayment sweep. For reviewers, the exact
+code:
+
+| What | Where |
+|---|---|
+| Auction created through the CCA factory, notes minted into it, `onTokensReceived()` | [`contracts/src/AdvanceHub.sol:399-418`](contracts/src/AdvanceHub.sol) |
+| `AuctionParameters`: step encoding, tick spacing, floor price, graduation threshold | [`contracts/src/AdvanceHub.sol:729-753`](contracts/src/AdvanceHub.sol) |
+| Auction wiring verified on-chain before the loan is allowed to exist | [`contracts/src/CreditLine.sol:143-158`](contracts/src/CreditLine.sol) |
+| Settlement: sweep, read graduation, burn unsold notes | [`contracts/src/CreditLine.sol:160-192`](contracts/src/CreditLine.sol) |
+| WETH → USDC through `SwapRouter02.exactInputSingle` under a Chainlink bound | [`contracts/src/RevenueEscrow.sol:415-438`](contracts/src/RevenueEscrow.sol) |
+| Lender side: Permit2 approvals, `submitBid`, settle, claim | [`packages/agent-kit/src/chain/actions.ts:260-400`](packages/agent-kit/src/chain/actions.ts) |
+| Both paths exercised against live Base contracts | [`contracts/test/fork/`](contracts/test/fork/) |
+
+Our developer feedback on building against the CCA — what worked, what cost us hours, what we would
+ask for next — is in [`FEEDBACK.md`](FEEDBACK.md).
+
+**Dynamic** holds every agent key as an MPC server wallet and enforces a transaction policy in front
+of them: [`packages/agent-kit/src/dynamic.ts`](packages/agent-kit/src/dynamic.ts),
+[`packages/agent-kit/src/policy.ts`](packages/agent-kit/src/policy.ts). The payment signature itself
+is checked on-chain by [`contracts/src/AgentCard.sol:108-132`](contracts/src/AgentCard.sol).
+
+**Bankr** is the collateral and the distribution: fee accrual is read straight from the Doppler fee
+manager ([`packages/core/src/sources/`](packages/core/src/sources/)), agents apply through the MCP
+server or the [skill](skills/advance), and the signed credit memo is itself a paid x402 endpoint on
+Bankr's x402 Cloud.
+
 ## Run it
 
 ```bash
