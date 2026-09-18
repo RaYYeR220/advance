@@ -1,0 +1,69 @@
+.folio {
+  font-family: var(--display);
+  font-size: var(--folio-size, var(--fs-folio));
+  line-height: var(--lh-folio);
+  color: var(--ochre);
+  letter-spacing: var(--track-headline);
+}
+
+.foot {
+  margin-top: auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+}
+
+.meta {
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+  color: var(--forest-80);
+  padding-bottom: 2px;
+}
+
+.meta i {
+  font-family: var(--display);
+  font-style: normal;
+  font-size: 17px;
+  color: var(--forest);
+}
+
+.rhead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 14px;
+  color: var(--forest-80);
+}
+
+.title {
+  font-family: var(--display);
+  font-size: var(--fs-running-title);
+  font-style: italic;
+  color: var(--forest);
+}
+
+.number {
+  font-family: var(--display);
+  font-size: var(--fs-page-no);
+  line-height: 1;
+  color: var(--forest);
+}
+
+.reverse {
+  border-bottom-color: var(--reverse-rule);
+  color: var(--reverse-80);
+}
+
+.reverse .title,
+.reverse .number {
+  color: var(--paper);
+}
+
+@media (max-width: 860px) {
+  :global(.sec) .right {
+    margin-top: 48px;
+  }
+}

@@ -1,0 +1,65 @@
+/* ---------- ruled: a statement set large under a heavy rule ---------- */
+
+.ruled {
+  margin: auto 0 0;
+  padding-top: 22px;
+  border-top: 3px solid var(--forest);
+}
+
+.ruled p {
+  font-family: var(--display);
+  font-size: var(--fs-pull);
+  line-height: var(--lh-pull);
+  letter-spacing: -0.01em;
+  max-width: 18ch;
+}
+
+.ruled footer {
+  margin-top: 14px;
+  font-size: 15.5px;
+  line-height: 1.5;
+  color: var(--forest-80);
+  max-width: 44ch;
+}
+
+/* ---------- memo: an excerpt with a hanging ochre quote mark ---------- */
+
+.memo {
+  margin-top: 34px;
+  padding-top: 18px;
+  border-top: 1px solid var(--rule);
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 0 12px;
+}
+
+.memo::before {
+  /* ornament only: the empty alternative keeps it out of the accessible text */
+  content: "\201C" / "";
+  grid-row: 1 / span 2;
+  font-family: var(--display);
+  font-size: 88px;
+  line-height: 0.85;
+  color: var(--ochre);
+}
+
+.memo blockquote {
+  margin: 0;
+  font-family: var(--display);
+  font-style: italic;
+  font-size: var(--fs-memo);
+  line-height: var(--lh-memo);
+}
+
+.memo figcaption {
+  margin-top: 12px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--forest-80);
+}
+
+@media (max-width: 860px) {
+  .ruled {
+    margin-top: 40px;
+  }
+}

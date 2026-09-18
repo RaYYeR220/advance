@@ -1,0 +1,182 @@
+.note {
+  position: relative;
+  isolation: isolate;
+}
+
+.note::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  translate: var(--offset-note);
+  z-index: -1;
+  background-image: var(--screen-note-shadow);
+  background-size: var(--screen-note-shadow-pitch) var(--screen-note-shadow-pitch);
+  background-position: 0 0, 3px 3px;
+  opacity: var(--screen-note-shadow-density);
+}
+
+.frame {
+  padding: 9px;
+  background-color: var(--stock);
+  background-image: var(--screen-note-frame);
+  background-size: var(--screen-note-frame-pitch) var(--screen-note-frame-pitch);
+  background-position: 0 0, 2.5px 2.5px;
+}
+
+.inner {
+  background: var(--stock);
+  border: 1px solid var(--forest);
+  padding: 18px 22px 18px;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--forest);
+}
+
+.seal {
+  width: 58px;
+  height: 58px;
+  flex: none;
+}
+
+.heading {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.series {
+  font-size: var(--fs-meta);
+  color: var(--forest-80);
+  margin-top: 4px;
+}
+
+.terms {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid var(--hair);
+}
+
+.term {
+  padding: 12px 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.term + .term {
+  padding-left: 14px;
+  border-left: 1px solid var(--hair);
+}
+
+.figure {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(26px, 2.3vw, 34px);
+  line-height: 1;
+}
+
+.times {
+  font-family: var(--text);
+  font-weight: 500;
+  font-size: 0.72em;
+  line-height: var(--lh-micro);
+  color: var(--forest);
+  margin-left: 1px;
+}
+
+.caption {
+  font-size: var(--fs-micro);
+  line-height: var(--lh-micro);
+  color: var(--forest-80);
+}
+
+.progress {
+  padding: 13px 0 0;
+}
+
+.progressRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: var(--fs-meta);
+  color: var(--forest-80);
+}
+
+.progressRow b {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 22px;
+  color: var(--forest);
+}
+
+.bar {
+  position: relative;
+  height: 30px;
+  margin: 8px 0 7px;
+}
+
+.barScreen {
+  position: absolute;
+  inset: 0;
+}
+
+.barScreen img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.bar svg {
+  position: absolute;
+  inset: -6px 0 -2px 0;
+  width: 100%;
+  height: calc(100% + 8px);
+  overflow: visible;
+}
+
+.progressFoot {
+  font-size: var(--fs-micro);
+  color: var(--forest-80);
+}
+
+.legal {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hair);
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+@media (max-width: 860px) {
+  .inner {
+    padding: 16px 16px 16px;
+  }
+
+  .heading {
+    font-size: 25px;
+  }
+
+  .seal {
+    width: 50px;
+    height: 50px;
+  }
+
+  .figure {
+    font-size: 26px;
+  }
+
+  .term + .term {
+    padding-left: 10px;
+  }
+
+  .caption {
+    font-size: 12px;
+  }
+}

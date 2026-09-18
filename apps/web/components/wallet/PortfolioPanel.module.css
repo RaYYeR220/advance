@@ -1,0 +1,31 @@
+.total {
+  margin-top: 16px;
+  font-size: var(--fs-small);
+}
+
+.total b {
+  font-family: var(--display);
+  font-size: 20px;
+  margin-right: 6px;
+}
+
+.section {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--rule);
+}
+
+.rowLoan {
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.rowStat {
+  font-size: var(--fs-small);
+  color: var(--forest-70);
+}
+
+.rowStat b {
+  color: var(--forest);
+  font-weight: 700;
+}

@@ -1,0 +1,25 @@
+.exhibit {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 2px solid var(--forest);
+}
+
+.label {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--ochre-ink);
+}
+
+.title {
+  font-family: var(--display);
+  font-size: 26px;
+  margin-bottom: 8px;
+}
+
+.body {
+  font-size: var(--fs-small);
+  line-height: 1.6;
+  max-width: 38em;
+  color: var(--forest-80);
+}

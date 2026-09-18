@@ -1,0 +1,38 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-meta);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border: 1.5px solid var(--forest);
+  color: var(--forest);
+}
+
+.badge::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--forest-35);
+}
+
+.live {
+  border-color: var(--ochre-ink);
+  color: var(--ochre-ink);
+}
+
+.live::before {
+  background: var(--ochre);
+}
+
+.graduated {
+  background: var(--forest);
+  color: var(--paper);
+}
+
+.graduated::before {
+  background: var(--paper);
+}

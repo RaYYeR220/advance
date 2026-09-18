@@ -1,0 +1,73 @@
+.portrait {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+}
+
+.plate {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.inkOchre {
+  opacity: 0;
+  transition: opacity var(--dur-ink) ease;
+}
+
+.inkForest {
+  mix-blend-mode: multiply;
+  clip-path: inset(0 0 100% 0);
+  transition: clip-path var(--dur-wipe) var(--ease-print) 0.25s;
+}
+
+.printed .inkOchre {
+  opacity: 1;
+}
+
+.printed .inkForest {
+  clip-path: inset(0 0 0 0);
+}
+
+.lens {
+  cursor: crosshair;
+  touch-action: pan-y;
+}
+
+.fine {
+  -webkit-mask-image: radial-gradient(circle var(--r, 0px) at var(--mx, 50%) var(--my, 50%), transparent 97%, #000 100%);
+  mask-image: radial-gradient(circle var(--r, 0px) at var(--mx, 50%) var(--my, 50%), transparent 97%, #000 100%);
+}
+
+.coarse {
+  -webkit-mask-image: radial-gradient(circle var(--r, 0px) at var(--mx, 50%) var(--my, 50%), #000 97%, transparent 100%);
+  mask-image: radial-gradient(circle var(--r, 0px) at var(--mx, 50%) var(--my, 50%), #000 97%, transparent 100%);
+}
+
+.loupe {
+  position: absolute;
+  left: var(--mx, 50%);
+  top: var(--my, 50%);
+  width: calc(var(--r, 0px) * 2);
+  height: calc(var(--r, 0px) * 2);
+  transform: translate(-50%, -50%);
+  border-radius: var(--radius-round);
+  border: 1px solid var(--forest);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inkOchre,
+  .inkForest {
+    transition: none;
+  }
+}

@@ -1,0 +1,117 @@
+.band {
+  background: var(--forest);
+  color: var(--paper);
+  padding: 40px var(--pad) 64px;
+  position: relative;
+  overflow-x: clip;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 8fr) minmax(0, 4fr);
+  gap: 64px;
+  align-items: end;
+  margin-top: 40px;
+}
+
+.run {
+  font-family: var(--display);
+  font-size: var(--fs-run);
+  line-height: var(--lh-run);
+  letter-spacing: -0.008em;
+  text-wrap: pretty;
+  padding-top: 0.3em;
+}
+
+/* figures printed as an ochre dot screen clipped to the numerals */
+.figure {
+  font-size: 2.1em;
+  line-height: 0;
+  letter-spacing: -0.03em;
+  padding: 0 0.03em;
+  color: var(--ochre);
+  background-image: var(--screen-figure);
+  background-size: var(--screen-figure-pitch) var(--screen-figure-pitch);
+  background-position: 0 0, 3px 3px;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.weekly {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.chart {
+  position: relative;
+  aspect-ratio: 10 / 7;
+}
+
+.screen,
+.screen img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.chart svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.chart text {
+  font-family: var(--text);
+  font-size: 12px;
+  fill: var(--paper);
+}
+
+.weekly figcaption {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--reverse-hair);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--reverse-85);
+}
+
+.weekly figcaption b {
+  color: var(--paper);
+}
+
+.noHistory {
+  align-self: end;
+  padding-top: 12px;
+  border-top: 1px solid var(--reverse-hair);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--reverse-85);
+}
+
+@media (max-width: 860px) {
+  .band {
+    padding: 28px var(--pad) 48px;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+    gap: 40px;
+    margin-top: 26px;
+  }
+
+  .run {
+    font-size: 27px;
+    line-height: 1.9;
+  }
+
+  .figure {
+    font-size: 2.1em;
+  }
+}

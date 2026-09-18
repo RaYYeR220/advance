@@ -1,0 +1,202 @@
+.page {
+  max-width: 820px;
+  margin: 0 auto;
+  padding-left: var(--pad);
+  padding-right: var(--pad);
+  padding-top: var(--space-section-top);
+  padding-bottom: var(--space-section-bottom);
+  overflow-x: clip;
+}
+
+.eyebrow {
+  font-size: var(--fs-meta);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ochre-ink);
+  margin-bottom: 10px;
+}
+
+.title {
+  font-family: var(--display);
+  font-size: clamp(32px, 4vw, 48px);
+  line-height: 1.04;
+  letter-spacing: var(--track-headline);
+}
+
+.deck {
+  margin-top: 14px;
+  font-size: var(--fs-small);
+  color: var(--forest-80);
+  max-width: 42em;
+}
+
+.section {
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid var(--rule);
+  scroll-margin-top: 24px;
+}
+
+.sectionTitle {
+  font-family: var(--display);
+  font-size: 24px;
+  margin-bottom: 6px;
+}
+
+.sectionIntro {
+  font-size: var(--fs-small);
+  color: var(--forest-80);
+  max-width: 40em;
+  margin-bottom: 14px;
+}
+
+.subsection {
+  margin-top: 26px;
+}
+
+.subsection:first-child {
+  margin-top: 0;
+}
+
+.subsectionTitle {
+  font-family: var(--display);
+  font-size: 19px;
+  margin-bottom: 6px;
+  scroll-margin-top: 24px;
+}
+
+.pre {
+  margin-top: 10px;
+  padding: 14px 16px;
+  background: var(--forest);
+  color: var(--paper);
+  font-family: var(--type);
+  font-size: var(--fs-code);
+  line-height: var(--lh-code);
+  overflow-x: auto;
+}
+
+.toolList {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font-family: var(--type);
+  font-size: 13.5px;
+}
+
+/* ---------- deployments ---------- */
+
+.chainList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.chain {
+  border: 1.5px solid var(--forest);
+  background: var(--stock);
+  padding: 14px 16px;
+}
+
+.chainHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chainName {
+  font-family: var(--display);
+  font-size: 19px;
+}
+
+.chainState {
+  font-size: var(--fs-meta);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--forest-70);
+}
+
+.chainState[data-deployed] {
+  color: var(--ochre-ink);
+}
+
+.addresses {
+  margin: 12px 0 0;
+  display: grid;
+  gap: 6px 20px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  font-size: var(--fs-small);
+}
+
+.addresses dt {
+  font-size: var(--fs-meta);
+  color: var(--forest-70);
+}
+
+.addresses dd {
+  margin: 2px 0 0;
+  font-family: var(--type);
+  font-size: 13.5px;
+  word-break: break-all;
+}
+
+.notDeployed {
+  margin-top: 8px;
+  font-size: var(--fs-small);
+  color: var(--forest-70);
+}
+
+/* ---------- repository docs ---------- */
+
+.docList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.docRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--hair);
+}
+
+.docTitle {
+  font-family: var(--display);
+  font-size: 18px;
+}
+
+.docDescription {
+  font-size: var(--fs-meta);
+  color: var(--forest-70);
+  flex-basis: 100%;
+}
+
+.docUnavailable {
+  font-size: var(--fs-meta);
+  color: var(--forest-70);
+  white-space: nowrap;
+}
+
+.backLink {
+  margin-top: 32px;
+}
+
+@media (max-width: 860px) {
+  .page {
+    padding-top: 28px;
+  }
+}

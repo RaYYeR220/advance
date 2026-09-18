@@ -1,0 +1,245 @@
+.page {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding-left: var(--pad);
+  padding-right: var(--pad);
+  padding-top: var(--space-section-top);
+  padding-bottom: var(--space-section-bottom);
+  overflow-x: clip;
+}
+
+.eyebrow {
+  font-size: var(--fs-meta);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ochre-ink);
+  margin-bottom: 10px;
+}
+
+.title {
+  font-family: var(--display);
+  font-size: clamp(34px, 4.2vw, 54px);
+  line-height: 1.04;
+  letter-spacing: var(--track-headline);
+}
+
+.deck {
+  margin-top: 14px;
+  font-family: var(--display);
+  font-style: italic;
+  font-size: var(--fs-deck);
+  line-height: var(--lh-deck);
+  max-width: 40em;
+}
+
+.empty {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
+  font-size: var(--fs-small);
+  line-height: 1.6;
+  color: var(--forest-80);
+  max-width: 38em;
+}
+
+/* ---------- agent card grid ---------- */
+
+.grid {
+  list-style: none;
+  margin: 32px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 20px;
+}
+
+.card {
+  display: block;
+  border: 1.5px solid var(--forest);
+  background: var(--stock);
+  text-decoration: none;
+  color: inherit;
+}
+
+.card:hover .cardAgent {
+  text-decoration: underline;
+  text-decoration-color: var(--ochre);
+}
+
+.portraitFrame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-bottom: 1.5px solid var(--forest);
+  background: var(--paper-dk);
+  overflow: hidden;
+}
+
+.cardBody {
+  padding: 14px 16px 16px;
+}
+
+.cardHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cardAgent {
+  font-family: var(--display);
+  font-size: 19px;
+}
+
+.cardStatus {
+  font-size: var(--fs-meta);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--forest-70);
+  white-space: nowrap;
+}
+
+.cardStatus[data-status="Active"] {
+  color: var(--ochre-ink);
+}
+
+.cardNote {
+  margin-top: 10px;
+  font-size: var(--fs-meta);
+  color: var(--forest-70);
+}
+
+.cardStats {
+  margin: 12px 0 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+}
+
+.cardStats dt {
+  font-size: var(--fs-micro);
+  color: var(--forest-70);
+}
+
+.cardStats dd {
+  margin: 1px 0 0;
+  font-family: var(--display);
+  font-size: 16px;
+}
+
+.cardAction {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hair);
+  font-size: var(--fs-meta);
+  color: var(--forest-70);
+}
+
+/* ---------- runway meter (reused inside a card) ---------- */
+
+.meter {
+  margin-top: 10px;
+}
+
+.meterBar {
+  height: 10px;
+  border: 1.5px solid var(--forest);
+  background: var(--paper);
+  position: relative;
+  overflow: hidden;
+}
+
+.meterFill {
+  position: absolute;
+  inset: 0;
+  width: var(--fill, 0%);
+  background: var(--forest);
+}
+
+.meterFill[data-low] {
+  background: var(--ochre-ink);
+}
+
+.meterLabel {
+  margin-top: 4px;
+  font-size: var(--fs-micro);
+  color: var(--forest-70);
+}
+
+.meterLabel b {
+  color: var(--forest);
+}
+
+/* ---------- live ticker ---------- */
+
+.tickerSection {
+  margin-top: 48px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
+}
+
+.sectionTitle {
+  font-family: var(--display);
+  font-size: 24px;
+  margin-bottom: 6px;
+}
+
+.sectionIntro {
+  font-size: var(--fs-small);
+  color: var(--forest-80);
+  max-width: 40em;
+  margin-bottom: 14px;
+}
+
+.ticker {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.tickerRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--hair);
+  font-size: var(--fs-small);
+}
+
+.tickerTime {
+  font-family: var(--type);
+  font-size: var(--fs-meta);
+  color: var(--forest-70);
+  min-width: 8ch;
+}
+
+.tickerLabel {
+  font-weight: 700;
+}
+
+.tickerDetail {
+  color: var(--forest-70);
+}
+
+.tickerLoan {
+  margin-left: auto;
+  font-size: var(--fs-meta);
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+@media (max-width: 860px) {
+  .page {
+    padding-top: 28px;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
