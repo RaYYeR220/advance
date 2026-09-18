@@ -10,6 +10,7 @@ import {
   loanStatusFromIndex,
   type ChainContext,
 } from "@advance/sdk";
+import { isTxHash } from "./format";
 import { getPublicClient, type SupportedChainId, type WebEnv } from "./env";
 
 /**
@@ -151,6 +152,12 @@ export interface AgentEvent {
   loanId?: string;
   timestamp: number;
   data: Record<string, unknown>;
+  /** The transaction this event is evidence of (e.g. a reverted on-chain draw behind a
+   * refusal, or the settlement behind a receipt), when the runtime attached one. Kept
+   * separate from `data` so callers can link to it without depending on the runtime's own
+   * field naming inside `data`. `undefined` when the event has none (e.g. a refusal caught
+   * before it ever reached the chain). */
+  txHash?: Hex;
 }
 
 export type MergedEvent = OnChainEvent | AgentEvent;
@@ -338,7 +345,10 @@ export function parseAgentEvent(raw: unknown): AgentEvent | undefined {
 
   const data = isRecord(raw.data) ? raw.data : raw;
 
-  return { source: "agent", id: idRaw, type, agent, loanId, timestamp, data };
+  const txHashRaw = raw.txHash;
+  const txHash = typeof txHashRaw === "string" && isTxHash(txHashRaw) ? txHashRaw : undefined;
+
+  return { source: "agent", id: idRaw, type, agent, loanId, timestamp, data, txHash };
 }
 
 /** Parses a whole feed payload — a bare array, or `{ events: [...] }` — skipping any entry

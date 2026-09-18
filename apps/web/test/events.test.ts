@@ -195,6 +195,18 @@ describe("parseAgentEvent / parseAgentEvents", () => {
     expect(parsed?.agent).toBeUndefined();
   });
 
+  it("carries a well-formed top-level txHash, separate from data", () => {
+    const tx = `0x${"7".repeat(64)}`;
+    const parsed = parseAgentEvent({ id: "evt-7", type: "refusal", at: 1, data: { layer: "gateway", reason: "off-allowlist payee" }, txHash: tx });
+    expect(parsed?.txHash).toBe(tx);
+    expect(parsed?.data).toEqual({ layer: "gateway", reason: "off-allowlist payee" });
+  });
+
+  it("drops a malformed txHash rather than throwing", () => {
+    const parsed = parseAgentEvent({ id: "evt-8", type: "refusal", at: 1, txHash: "not-a-hash" });
+    expect(parsed?.txHash).toBeUndefined();
+  });
+
   it("parses a bare array feed", () => {
     const events = parseAgentEvents([{ id: "a", type: "refusal", at: 1 }, { id: "b", type: "receipt", at: 2 }]);
     expect(events).toHaveLength(2);
