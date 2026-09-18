@@ -52,6 +52,22 @@ export const feesManagerAbi = [
     ],
   },
   /**
+   * Moves all of the caller's beneficiary shares for `poolId` to `newBeneficiary`, releasing
+   * already-cumulated fees to both parties first. The agent treasury calls this to move its
+   * shares onto a loan's predicted escrow before `AdvanceHub.openLoan`, and the escrow calls it
+   * again (via `RevenueEscrow.release`/closing) to hand the shares back.
+   */
+  {
+    type: "function",
+    name: "updateBeneficiary",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "poolId", type: "bytes32" },
+      { name: "newBeneficiary", type: "address" },
+    ],
+    outputs: [],
+  },
+  /**
    * `DopplerHookInitializer`'s auto-generated getter for `mapping(address asset => PoolState
    * state) public getState` (struct fields `beneficiaries`/`adjustedCurves` are dynamic
    * arrays, which Solidity's default struct getter omits; every other field is returned in

@@ -1,0 +1,17 @@
+services:
+  agents:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    working_dir: /app
+    volumes:
+      - .:/app
+      # node_modules live in named volumes, not the bind mount: pnpm's Windows
+      # symlinked node_modules are not readable from Linux, and vice versa -
+      # deps must be installed fresh inside the container.
+      - agent-kit-root-node-modules:/app/node_modules
+      - agent-kit-pkg-node-modules:/app/packages/agent-kit/node_modules
+
+volumes:
+  agent-kit-root-node-modules:
+  agent-kit-pkg-node-modules:
