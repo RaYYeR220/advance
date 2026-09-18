@@ -1,0 +1,157 @@
+.panel {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
+}
+
+.panelTitle {
+  font-family: var(--display);
+  font-size: 24px;
+  margin-bottom: 10px;
+}
+
+.copy {
+  font-size: var(--fs-small);
+  color: var(--forest-80);
+  max-width: 38em;
+}
+
+.form {
+  margin-top: 16px;
+  display: grid;
+  gap: 14px;
+  max-width: 360px;
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+  font-size: var(--fs-small);
+}
+
+.field span {
+  font-weight: 700;
+  color: var(--forest-70);
+}
+
+.field input {
+  font-family: var(--type);
+  font-size: 16px;
+  padding: 10px 12px;
+  border: 1.5px solid var(--forest);
+  background: var(--stock);
+  color: var(--forest);
+}
+
+.field input:disabled {
+  opacity: 0.5;
+}
+
+.submit {
+  justify-self: start;
+}
+
+.error {
+  color: #8a2a1a;
+  font-size: var(--fs-small);
+}
+
+.ended,
+.loading {
+  font-size: var(--fs-small);
+  color: var(--forest-80);
+}
+
+.explain {
+  margin-top: 10px;
+  font-size: var(--fs-meta);
+  color: var(--forest-70);
+  max-width: 38em;
+}
+
+.link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.steps {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+  font-size: var(--fs-small);
+}
+
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border: 1px solid var(--hair);
+}
+
+.steps li[data-status="done"] {
+  border-color: var(--forest);
+}
+
+.steps li[data-status="confirming"] {
+  border-color: var(--ochre);
+}
+
+.steps li a {
+  font-size: var(--fs-meta);
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+.bidList {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.bidRow {
+  border: 1px solid var(--hair);
+  padding: 10px 12px;
+  font-size: var(--fs-small);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bidActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.smallButton {
+  font-size: var(--fs-meta);
+  font-weight: 700;
+  padding: 6px 12px;
+  border: 1.5px solid var(--forest);
+  background: transparent;
+  color: var(--forest);
+  cursor: pointer;
+}
+
+.smallButton:hover {
+  background: var(--forest);
+  color: var(--paper);
+}
+
+.smallButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

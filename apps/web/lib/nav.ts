@@ -5,7 +5,7 @@ import type { MastheadLink } from "@/components/editorial/Masthead";
  * everywhere in the site. */
 export const NAV: readonly MastheadLink[] = [
   { label: "Underwrite", href: "/underwrite" },
-  { label: "Auctions", href: "/#auctions" },
+  { label: "Auctions", href: "/auctions" },
   { label: "Economy", href: "/#economy" },
   { label: "Portfolio", href: "/#portfolio", optional: true },
   { label: "Docs", href: "/#docs" },
@@ -17,7 +17,7 @@ export const FOOTER: readonly BackCoverColumn[] = [
     title: "App",
     links: [
       { label: "Underwrite", href: "/underwrite" },
-      { label: "Auctions", href: "/#auctions" },
+      { label: "Auctions", href: "/auctions" },
       { label: "Loans", href: "/#how" },
       { label: "Economy", href: "/#economy" },
       { label: "Portfolio", href: "/#portfolio" },

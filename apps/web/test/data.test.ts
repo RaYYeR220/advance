@@ -3,10 +3,13 @@ import type { Address, Hex } from "viem";
 import type { AuctionView, EvidenceBundle, LoanStatus, LoanView, ScoreResult, TermSheet } from "@advance/sdk";
 import {
   getAuction,
+  getAuctions,
   getEconomy,
   getLandingData,
   getLandingDataSafe,
+  getLatestBlock,
   getLoan,
+  getLoanActivity,
   getLoanEvidence,
   getLoans,
   getScore,
@@ -215,6 +218,41 @@ describe("getLoans / getLoan / getAuction / getScore / getLoanEvidence", () => {
     });
     const evidence = await getLoanEvidence(fakeLoan(), deps({ client }));
     expect(evidence).toBeUndefined();
+  });
+});
+
+describe("getAuctions", () => {
+  it("pairs every loan with its own auction", async () => {
+    const loanA = fakeLoan({ loanId: 1n });
+    const loanB = fakeLoan({ loanId: 2n, status: "Active" });
+    const client = fakeClient({
+      loans: vi.fn(async () => [loanA, loanB]),
+      auction: vi.fn(async (loanId: bigint) => fakeAuction({ blocksLeft: loanId === 1n ? 5n : 0n })),
+    });
+    const items = await getAuctions(deps({ client }));
+    expect(items.map((i) => i.loan.loanId)).toEqual([1n, 2n]);
+    expect(items[0]?.auction.blocksLeft).toBe(5n);
+    expect(items[1]?.auction.blocksLeft).toBe(0n);
+  });
+
+  it("returns an empty list when the hub has never opened a loan", async () => {
+    const client = fakeClient({ loans: vi.fn(async () => []) });
+    expect(await getAuctions(deps({ client }))).toEqual([]);
+  });
+});
+
+describe("getLoanActivity", () => {
+  it("scopes the events read to the given loan id", async () => {
+    const events = fakeEvents([]);
+    await getLoanActivity(7n, deps({ events }));
+    expect(events.list).toHaveBeenCalledWith(expect.objectContaining({ loanId: 7n }));
+  });
+});
+
+describe("getLatestBlock", () => {
+  it("delegates to the injected block-number reader", async () => {
+    const block = await getLatestBlock(deps({ getBlockNumber: async () => 42n }));
+    expect(block).toBe(42n);
   });
 });
 

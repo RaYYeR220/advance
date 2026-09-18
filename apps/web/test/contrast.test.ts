@@ -58,3 +58,14 @@ describe("ochre text contrast", () => {
     expect(contrast(token("forest"), token("ochre"))).toBeGreaterThanOrEqual(4.5);
   });
 });
+
+describe("wallet error text contrast", () => {
+  // Not a design token — the bid form's own error red (components/wallet/BidPanel.module.css),
+  // checked directly against the same paper/stock backgrounds it's ever set on.
+  const ERROR_RED = "#8a2a1a";
+
+  it("reads as normal-size body text on paper and stock", () => {
+    expect(contrast(ERROR_RED, token("paper"))).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(ERROR_RED, token("stock"))).toBeGreaterThanOrEqual(4.5);
+  });
+});

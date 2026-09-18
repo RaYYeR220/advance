@@ -1,0 +1,89 @@
+.page {
+  max-width: 820px;
+  margin: 0 auto;
+  padding-left: var(--pad);
+  padding-right: var(--pad);
+  padding-top: var(--space-section-top);
+  padding-bottom: var(--space-section-bottom);
+  overflow-x: clip;
+}
+
+.eyebrow {
+  font-size: var(--fs-meta);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ochre-ink);
+  margin-bottom: 10px;
+}
+
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.title {
+  font-family: var(--display);
+  font-size: clamp(32px, 4vw, 48px);
+  line-height: 1.04;
+  letter-spacing: var(--track-headline);
+}
+
+.deck {
+  margin-top: 14px;
+  font-size: var(--fs-small);
+  color: var(--forest-80);
+  max-width: 42em;
+}
+
+.link {
+  margin-top: 10px;
+  font-size: var(--fs-small);
+}
+
+.stats {
+  margin-top: 28px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 18px 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--rule);
+}
+
+.stat dt {
+  font-size: var(--fs-meta);
+  color: var(--forest-70);
+}
+
+.stat dd {
+  margin: 2px 0 0;
+  font-family: var(--display);
+  font-size: 24px;
+}
+
+.section {
+  margin-top: 36px;
+}
+
+.sectionTitle {
+  font-family: var(--display);
+  font-size: 22px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.body {
+  margin-top: 16px;
+  font-size: var(--fs-small);
+  line-height: 1.6;
+  color: var(--forest-80);
+  max-width: 38em;
+}
+
+@media (max-width: 860px) {
+  .page {
+    padding-top: 28px;
+  }
+}

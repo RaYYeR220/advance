@@ -10,9 +10,11 @@ import {
   type LoanView,
   type ScoreResult,
 } from "@advance/sdk";
+import type { AuctionListItem } from "./auctions";
 import { addressPrefix } from "./format";
 import { getPublicClient, loadWebEnv, type SupportedChainId, type WebEnv } from "./env";
-import { createLiveEventsSource, type EventsSource, type HarvestedEvent } from "./events";
+import { createLiveEventsSource, type EventsPage, type EventsSource, type HarvestedEvent } from "./events";
+import { buildFixtureDataClient, buildFixtureEventsSource, FIXTURE_BLOCK_NUMBER } from "./fixtures/webFixtures";
 import { createTtlCache, type TtlCache } from "./ttlCache";
 import type { LandingData } from "./landing-data";
 
@@ -50,8 +52,19 @@ export interface DataDeps {
 // A real deployment has exactly one `WebEnv` for the process's lifetime, so these singletons
 // are built once from whichever `webEnv` first constructs them and reused after — tests never
 // hit this path (they pass `client`/`events` directly) or call `resetDataLayerForTests`.
-let defaultClient: AdvanceClient | undefined;
+let defaultClient: DataClient | undefined;
 let defaultEvents: EventsSource | undefined;
+
+/**
+ * e2e-only escape hatch: when set, every page reads a fully in-memory fixture instead of a
+ * real chain/underwriter, so `/auctions*` and `/loans/[loanId]` can be exercised end to end
+ * with no live RPC. Never set outside `playwright.config.ts`'s fixture webServer — a normal
+ * `deps.client`/`deps.events` injection (as every unit test in this repo already uses) always
+ * takes priority over this, and production never sets the env var at all.
+ */
+function useFixtureDataLayer(): boolean {
+  return process.env.WEB_E2E_FIXTURES === "1";
+}
 
 function resolveWebEnv(deps?: DataDeps): WebEnv {
   return deps?.webEnv ?? loadWebEnv();
@@ -60,6 +73,10 @@ function resolveWebEnv(deps?: DataDeps): WebEnv {
 function resolveClient(deps?: DataDeps): DataClient {
   if (deps?.client) return deps.client;
   const webEnv = resolveWebEnv(deps);
+  if (useFixtureDataLayer()) {
+    defaultClient ??= buildFixtureDataClient();
+    return defaultClient;
+  }
   defaultClient ??= new AdvanceClient({
     chainId: webEnv.chainId,
     apiUrl: webEnv.underwriterApiUrl,
@@ -72,6 +89,10 @@ function resolveClient(deps?: DataDeps): DataClient {
 function resolveEvents(deps?: DataDeps): EventsSource {
   if (deps?.events) return deps.events;
   const webEnv = resolveWebEnv(deps);
+  if (useFixtureDataLayer()) {
+    defaultEvents ??= buildFixtureEventsSource();
+    return defaultEvents;
+  }
   defaultEvents ??= createLiveEventsSource(webEnv);
   return defaultEvents;
 }
@@ -82,8 +103,16 @@ function resolveNowSeconds(deps?: DataDeps): number {
 
 function resolveBlockNumber(deps?: DataDeps): Promise<bigint> {
   if (deps?.getBlockNumber) return deps.getBlockNumber();
+  if (useFixtureDataLayer()) return Promise.resolve(FIXTURE_BLOCK_NUMBER);
   const webEnv = resolveWebEnv(deps);
   return getPublicClient(webEnv).getBlockNumber();
+}
+
+/** The chain's current block number — the same read `getLandingData`/`getEconomy` use for
+ * their own "as of" figures, exposed directly for pages (e.g. the loan certificate's "latest
+ * block" caption) that need it without a full loans/economy read. */
+export function getLatestBlock(deps?: DataDeps): Promise<bigint> {
+  return resolveBlockNumber(deps);
 }
 
 /** Test-only: drops the process-wide default client/events singletons, and the shared cache,
@@ -99,10 +128,13 @@ const cache: TtlCache = createTtlCache();
 const LOANS_TTL_MS = 30_000;
 const LOAN_TTL_MS = 20_000;
 const AUCTION_TTL_MS = 10_000;
+const AUCTIONS_TTL_MS = 10_000;
 const SCORE_TTL_MS = 60_000;
 const EVIDENCE_TTL_MS = 5 * 60_000;
 const ECONOMY_TTL_MS = 30_000;
 const LANDING_TTL_MS = 30_000;
+const LOAN_ACTIVITY_TTL_MS = 15_000;
+const LOAN_ACTIVITY_LIMIT = 200;
 
 // ---------------------------------------------------------------------------------------------
 // Loans / auctions / score
@@ -136,6 +168,27 @@ export async function getAuction(loanId: bigint, deps?: DataDeps): Promise<Aucti
   if (!loan) return null;
   const client = resolveClient(deps);
   return cache.get(`auction:${loanId}`, AUCTION_TTL_MS, () => client.auction(loanId));
+}
+
+/** Every loan the hub has opened, paired with its own CCA auction — `/auctions`' whole read.
+ * Every loan carries its auction's address from the moment it opens (see `LoanView.auction`),
+ * so this is one `getLoans` plus one `auction()` read per loan, no separate "is this loan an
+ * auction" filter. */
+export async function getAuctions(deps?: DataDeps): Promise<AuctionListItem[]> {
+  return cache.get("auctions", AUCTIONS_TTL_MS, async () => {
+    const loans = await getLoans(undefined, deps);
+    const client = resolveClient(deps);
+    const auctions = await Promise.all(loans.map((loan) => client.auction(loan.loanId)));
+    return loans.map((loan, i) => ({ loan, auction: auctions[i]! }));
+  });
+}
+
+/** A single loan's own activity feed (on-chain draws/harvests/distributions/claims plus any
+ * off-chain refusals/receipts), newest first — the one read `/loans/[loanId]` builds its
+ * timelines, meters and refusal exhibits from. */
+export async function getLoanActivity(loanId: bigint, deps?: DataDeps): Promise<EventsPage> {
+  const events = resolveEvents(deps);
+  return cache.get(`activity:${loanId}`, LOAN_ACTIVITY_TTL_MS, () => events.list({ loanId, limit: LOAN_ACTIVITY_LIMIT }));
 }
 
 /** A token's free eligibility score from the underwriter (`GET /v1/score/:token`). */
