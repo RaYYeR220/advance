@@ -16,8 +16,7 @@ import {
 import type { EventSink } from "@advance/agent-kit";
 import { erc20Abi, type Address, type Hex, type PublicClient } from "viem";
 
-/** Default harvest floor: 0.0005 WETH - the same figure plan-03 gives for "pending WETH worth
- * bothering with", tuned so the keeper doesn't spend gas harvesting dust. */
+/** Default harvest floor: 0.0005 WETH - tuned so the keeper doesn't spend gas harvesting dust. */
 export const DEFAULT_HARVEST_MIN_WETH = 500_000_000_000_000n;
 
 // Mirrors `IAdvance.LoanStatus`/`CreditLine.State`/`RevenueEscrow.Phase` (see
