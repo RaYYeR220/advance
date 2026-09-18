@@ -1,0 +1,14 @@
+{
+  "usdc": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "weth": "0x4200000000000000000000000000000000000006",
+  "ccaFactory": "0x000000001F26a0044BaA66024e7b6599c61963F8",
+  "router": "0x2626664c2603336E57B271c5C0b26F421741e481",
+  "ethUsdFeed": "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70",
+  "sequencerFeed": "0xBCF85224fc0756B9Fa45aA7892530B47e10b6433",
+  "reputationRegistry": "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63",
+  "identityRegistry": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+  "maxStaleness": 3600,
+  "slippageBps": 100,
+  "minActivityUsdc": 1000000,
+  "_comment": "Base mainnet. maxStaleness 3600s covers the ETH/USD feed's ~20min heartbeat with room to spare. slippageBps 100 (1%) reflects mainnet's deep WETH/USDC liquidity. minActivityUsdc 1_000_000 (=$1) is the fee-derived repayment that must land before an escrow's default timer moves."
+}

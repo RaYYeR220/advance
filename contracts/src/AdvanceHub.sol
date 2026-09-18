@@ -485,6 +485,21 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
     /// never reverts the default, and each optional hook runs on a bounded gas stipend. If a card
     /// hook repays the loan in the middle of the default, the loan is already Repaid by the time
     /// feedback would be posted, so only the +100 stands.
+    /// @dev `CreditLine.freeze()` is deliberately left unwrapped: it is this hub's own contract and
+    /// its only external calls are to the loan's note and to USDC, so the sole way it can revert is
+    /// a USDC transfer to a blacklisted agent treasury. Swallowing that would hand noteholders'
+    /// collateral to a card that is about to be unfrozen by a later repayment, so a default against
+    /// a blacklisted treasury is meant to revert until the treasury is replaced by a new term sheet.
+    ///
+    /// The escrow close, by contrast, reaches the agent's own fees manager, so it is called through
+    /// a bounded low-level call: a hostile manager that reverts with megabytes of data would
+    /// otherwise make the catch clause's unbounded copy run out of gas and brick every default.
+    ///
+    /// A loan that stays Defaulted keeps its card bound (`liveLoanOf` is only cleared on Repaid or
+    /// Failed), because the frozen card still holds this loan's drawn USDC and a later harvest can
+    /// still reach the cap and unfreeze it. The agent gets a new card, not a second loan on this one.
+    /// The -100 feedback is likewise one-shot: a skipped post only emits `ReputationSkipped` and is
+    /// never retried, so the registry can lag the chain but never block or duplicate an outcome.
     /// @param loanId The loan id.
     function markDefault(uint256 loanId) external {
         Loan storage loan_ = _loans[loanId];
@@ -506,8 +521,11 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
             _postFeedback(loanId, loan_.ts, DEFAULT_FEEDBACK, "default");
         }
         CreditLine(creditLine).freeze();
-        try escrow.closeIfRepaid() returns (bool) {}
-        catch (bytes memory reason) {
+        // All remaining gas, but only `MAX_REASON_BYTES` of whatever comes back: the close reaches
+        // the agent's fees manager, and a `try/catch` here would copy its revert data in full.
+        (bool closed, bytes memory reason) =
+            _callBounded(address(escrow), gasleft(), abi.encodeCall(RevenueEscrow.closeIfRepaid, ()));
+        if (!closed) {
             // forge-lint: disable-next-line(reentrancy-events) the failure is only known after the call
             emit CloseAttemptFailed(loanId, address(escrow), reason);
         }
@@ -757,7 +775,8 @@ contract AdvanceHub is EIP712, IAdvance, IAdvanceHub {
     /// letting the registry starve the rest of the call: skipped when the term sheet has no agent id
     /// or the registry has no code, given only `REPUTATION_HOOK_GAS`, and a failed call is reported
     /// with the first `MAX_REASON_BYTES` of its revert data (copying it in full would let a hostile
-    /// registry charge this call for an unbounded copy).
+    /// registry charge this call for an unbounded copy). A skipped post is final: nothing retries it,
+    /// so an outcome is recorded at most once and a broken registry never blocks a loan.
     function _postFeedback(uint256 loanId, TermSheet storage ts, int128 value, string memory tag) internal {
         address registry = reputationRegistry;
         uint256 agentId = ts.agentId;
