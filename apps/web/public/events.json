@@ -10,7 +10,8 @@
       "layer": "card-1271",
       "reason": "invalid_exact_evm_signature",
       "payTo": "0x000000000000000000000000000000000000dEaD",
-      "amount": "1000",
+      "amount": "0.001",
+      "amountMicroUsdc": "1000",
       "revertReason": "FiatTokenV2: invalid signature",
       "onChain": true,
       "blockNumber": 46984695,
@@ -57,10 +58,11 @@
     "kind": "receipt",
     "data": {
       "payTo": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
-      "amount": "1000",
+      "amount": "0.001",
       "network": "eip155:84532",
       "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f"
+      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
+      "amountMicroUsdc": "1000"
     },
     "loanId": "5",
     "txHash": "0xadf0590bc8934afd34859a35cf4746082b3e8842daa39e85f8f5469966d7f0fc"
@@ -72,10 +74,11 @@
     "kind": "receipt",
     "data": {
       "payTo": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
-      "amount": "1000",
+      "amount": "0.001",
       "network": "eip155:84532",
       "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f"
+      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
+      "amountMicroUsdc": "1000"
     },
     "loanId": "5",
     "txHash": "0xed7a178304a99f3d14f55d4145f4dc75d599625c8df8510b6aa914e18bde808c"
@@ -87,10 +90,11 @@
     "kind": "receipt",
     "data": {
       "payTo": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
-      "amount": "1000",
+      "amount": "0.001",
       "network": "eip155:84532",
       "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f"
+      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
+      "amountMicroUsdc": "1000"
     },
     "loanId": "5",
     "txHash": "0x17b7a790a247b07353804a7499ae77cc11fb199646d2d5b113d5e14ca7f83779"
@@ -102,10 +106,11 @@
     "kind": "receipt",
     "data": {
       "payTo": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
-      "amount": "1000",
+      "amount": "0.001",
       "network": "eip155:84532",
       "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f"
+      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
+      "amountMicroUsdc": "1000"
     },
     "loanId": "5",
     "txHash": "0x90e954417b39c28e2257808d7fbd2843b4bce28d6b653a3603c145f258e08a37"
@@ -117,11 +122,12 @@
     "kind": "settlement_failed",
     "data": {
       "payTo": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
-      "amount": "1000",
+      "amount": "0.001",
       "network": "eip155:84532",
       "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
       "status": 402,
-      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f"
+      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
+      "amountMicroUsdc": "1000"
     },
     "loanId": "4"
   },
@@ -132,10 +138,11 @@
     "kind": "receipt",
     "data": {
       "payTo": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
-      "amount": "1000",
+      "amount": "0.001",
       "network": "eip155:84532",
       "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f"
+      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
+      "amountMicroUsdc": "1000"
     },
     "loanId": "4",
     "txHash": "0x3e2c1109d17fb038ee3be4e9d06d4daa4f4134459a09615114e41b6f08a6110d"
@@ -147,10 +154,11 @@
     "kind": "receipt",
     "data": {
       "payTo": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
-      "amount": "1000",
+      "amount": "0.001",
       "network": "eip155:84532",
       "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f"
+      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
+      "amountMicroUsdc": "1000"
     },
     "loanId": "4",
     "txHash": "0xb4cb776dc813240884812f4371108764e14e739cf65a3eeab55e2340785c27b1"
@@ -162,10 +170,11 @@
     "kind": "receipt",
     "data": {
       "payTo": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
-      "amount": "1000",
+      "amount": "0.001",
       "network": "eip155:84532",
       "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f"
+      "payee": "0x70663CbD48a168A43120BC16e4712e1959fc382f",
+      "amountMicroUsdc": "1000"
     },
     "loanId": "4",
     "txHash": "0xbdff14a70af4cb38eaccccebdd57ee17cc6a56fa82a1e45bf52443bcd7341ea9"
