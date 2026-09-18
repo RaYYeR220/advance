@@ -19,7 +19,11 @@
     "test:live": "LIVE_FORK=1 vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
     "launch-token": "tsx src/bin/launch-token.ts",
-    "serve": "tsx src/bin/serve-x402-llm.ts"
+    "serve": "tsx src/bin/serve-x402-llm.ts",
+    "provision-agent": "tsx src/bin/provision-agent.ts",
+    "run-keeper": "tsx src/bin/run-keeper.ts",
+    "run-agents": "tsx src/bin/run-agents.ts",
+    "seed-sepolia": "tsx src/bin/seed-sepolia.ts"
   },
   "dependencies": {
     "@advance/agent-kit": "workspace:*",
